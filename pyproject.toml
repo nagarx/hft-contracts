@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hft-contracts"
+version = "2.2.0"
+description = "Single source of truth for HFT pipeline cross-module contracts"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+generate = ["tomli>=2.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hft_contracts"]
