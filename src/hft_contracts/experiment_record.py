@@ -222,8 +222,16 @@ class ExperimentRecord:
             "training_metrics": {
                 k: v for k, v in self.training_metrics.items()
                 if k in (
+                    # Classification (pre-Phase-7 baseline keys)
                     "accuracy", "macro_f1", "macro_precision", "macro_recall",
                     "best_val_accuracy", "best_val_macro_f1", "best_epoch",
+                    # Regression (Phase 7 Stage 7.4, 2026-04-19) — emitted by
+                    # TrainingRunner when test_metrics.json is present.
+                    # Required by PostTrainingGateRunner for prior-best
+                    # regression IC comparison.
+                    "test_ic", "test_directional_accuracy", "test_r2",
+                    "test_mae", "test_rmse", "test_pearson",
+                    "test_profitable_accuracy",
                 )
             },
             "backtest_metrics": {
