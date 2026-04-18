@@ -8,7 +8,12 @@ version = "2.2.0"
 description = "Single source of truth for HFT pipeline cross-module contracts"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    # numpy is used by label_factory.py (long-standing, Phase 4) and
+    # signal_manifest.py (Phase 6 6B.5 move). Declare explicitly so
+    # consumers don't rely on implicit install context.
+    "numpy>=1.26",
+]
 
 [project.optional-dependencies]
 generate = ["tomli>=2.0"]
