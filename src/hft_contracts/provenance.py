@@ -181,9 +181,20 @@ def hash_directory_manifest(dir_path: Path) -> str:
 
     Returns:
         Hex-encoded SHA-256 hash, or empty string if directory not found.
+
+    Phase 6 post-validation hardening (2026-04-18): delegates to the
+    canonical-hash SSoT (`hft_contracts.canonical_hash.canonical_json_blob`
+    + `sha256_hex`) for convention consistency across the provenance
+    module. Under the current data shape (sorted list of ``(str, int)``
+    tuples), ``sort_keys=True`` and ``default=str`` are no-ops, so output
+    is byte-identical to the prior inline ``json.dumps + hashlib.sha256``
+    form. The SSoT call guards future shape changes (e.g., dict entries)
+    from silently drifting into a non-canonical form.
     """
     if not dir_path.exists():
         return ""
+
+    from hft_contracts.canonical_hash import canonical_json_blob, sha256_hex
 
     entries: list[tuple[str, int]] = []
     for root, _dirs, files in os.walk(dir_path):
@@ -197,8 +208,7 @@ def hash_directory_manifest(dir_path: Path) -> str:
             entries.append((str(rel), size))
 
     entries.sort()
-    manifest_str = json.dumps(entries)
-    return hashlib.sha256(manifest_str.encode("utf-8")).hexdigest()
+    return sha256_hex(canonical_json_blob(entries))
 
 
 # Provenance schema version — bump when breaking changes are made to the

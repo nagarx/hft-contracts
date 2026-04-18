@@ -174,13 +174,19 @@ class ExperimentRecord:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExperimentRecord:
-        """Deserialize from a dict."""
-        prov_data = data.pop("provenance", {})
+        """Deserialize from a dict.
+
+        Phase 6 post-validation hardening (2026-04-18): non-mutating —
+        reads via ``data.get(...)`` so callers can pass the same dict
+        multiple times (e.g., through a cache layer) without the second
+        call finding ``provenance`` missing.
+        """
+        prov_data = data.get("provenance", {})
         record = cls(**{
             k: v for k, v in data.items()
-            if k in cls.__dataclass_fields__
+            if k in cls.__dataclass_fields__ and k != "provenance"
         })
-        record.provenance = Provenance.from_dict(prov_data)
+        record.provenance = Provenance.from_dict(dict(prov_data))
         return record
 
     def save(self, path: Path) -> None:

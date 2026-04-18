@@ -50,6 +50,13 @@ from hft_contracts.canonical_hash import (
     sha256_hex,
 )
 
+# Phase 6 post-validation (2026-04-18): `_sanitize_for_hash` is a
+# back-compat re-export used by `hft_ops.feature_sets.hashing` shim. It
+# must survive IDE "remove unused imports" passes even though it's not
+# referenced by any function here. Listing it in __all__ below makes it
+# a named export (not a hidden leading-underscore-module-attribute) so
+# linters/tools preserve it. See `hft_ops/feature_sets/hashing.py` shim.
+
 
 def compute_feature_set_hash(
     feature_indices: Iterable[int],
@@ -122,3 +129,9 @@ def compute_feature_set_hash(
         "contract_version": str(contract_version),
     }
     return sha256_hex(canonical_json_blob(canonical))
+
+
+__all__ = [
+    "compute_feature_set_hash",
+    "_sanitize_for_hash",
+]

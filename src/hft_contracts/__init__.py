@@ -289,14 +289,72 @@ __all__ = [
     "canonical_json_blob",
     "sanitize_for_hash",
     "sha256_hex",
+    # Phase 6 contract-plane primitives (2026-04-17) — re-exported at
+    # package level for ergonomic `from hft_contracts import X` access.
+    # Canonical module paths continue to work (`from hft_contracts.provenance
+    # import Provenance` etc.) for explicit-import-style consumers.
+    "Provenance",
+    "GitInfo",
+    "build_provenance",
+    "capture_git_info",
+    "hash_file",
+    "hash_directory_manifest",
+    "hash_config_dict",
+    "NOT_GIT_TRACKED_SENTINEL",
+    "PROVENANCE_SCHEMA_VERSION",
+    "SignalManifest",
+    "ExperimentRecord",
+    "RecordType",
+    "FeatureSet",
+    "FeatureSetRef",
+    "FeatureSetAppliesTo",
+    "FeatureSetProducedBy",
+    "FeatureSetValidationError",
+    "FeatureSetIntegrityError",
+    "FEATURE_SET_SCHEMA_VERSION",
+    "compute_feature_set_hash",
+    "validate_feature_set_dict",
 ]
 
 # -- Canonical hashing primitives (Phase 4 Batch 4c hardening, 2026-04-15) --
 # Single source of truth for the canonical JSON + SHA-256 convention used
 # across hft-ops ledger, hft-ops provenance, hft-ops feature_sets,
-# hft-feature-evaluator, and (via inlined copy + parity test) lob-model-trainer.
+# hft-feature-evaluator, and lob-model-trainer.
+# Phase 6 6B.2 (2026-04-17): trainer's `_compute_content_hash` now delegates
+# here; parity test replaced by `TestCanonicalHashGolden` drift detector.
 from hft_contracts.canonical_hash import (
     canonical_json_blob,
     sanitize_for_hash,
     sha256_hex,
+)
+
+# -- Phase 6 contract-plane primitives (2026-04-17) --
+# Co-moved to hft_contracts so the contract plane owns every cross-module
+# dataclass. Legacy module paths (hft_ops.provenance.lineage,
+# hft_ops.ledger.experiment_record, hft_ops.feature_sets.{schema,hashing},
+# lobbacktest.data.signal_manifest) are re-export shims — see shim
+# docstrings for the 6B.{1a/2/3/4/5} sub-phase mapping.
+from hft_contracts.provenance import (
+    Provenance,
+    GitInfo,
+    build_provenance,
+    capture_git_info,
+    hash_file,
+    hash_directory_manifest,
+    hash_config_dict,
+    NOT_GIT_TRACKED_SENTINEL,
+    PROVENANCE_SCHEMA_VERSION,
+)
+from hft_contracts.signal_manifest import SignalManifest
+from hft_contracts.experiment_record import ExperimentRecord, RecordType
+from hft_contracts.feature_sets import (
+    FeatureSet,
+    FeatureSetRef,
+    FeatureSetAppliesTo,
+    FeatureSetProducedBy,
+    FeatureSetValidationError,
+    FeatureSetIntegrityError,
+    FEATURE_SET_SCHEMA_VERSION,
+    compute_feature_set_hash,
+    validate_feature_set_dict,
 )
