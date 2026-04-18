@@ -4,17 +4,23 @@ Canonical JSON serialization + SHA-256 hashing primitives.
 **Single source of truth** for the canonical-form hashing convention used by:
 
 - `hft_ops.ledger.dedup.compute_fingerprint` — experiment fingerprint
-- `hft_ops.provenance.lineage.hash_config_dict` — arbitrary config hash
-- `hft_ops.feature_sets.hashing.compute_feature_set_hash` — FeatureSet product hash
+- `hft_contracts.provenance.hash_config_dict` — arbitrary config hash
+  (moved to hft-contracts in Phase 6 6B.4; hft-ops has a re-export shim)
+- `hft_contracts.feature_sets.hashing.compute_feature_set_hash` —
+  FeatureSet product hash (moved to hft-contracts in Phase 6 6B.3; hft-ops
+  has a re-export shim)
 - `hft_evaluator.pipeline.compute_profile_hash` — evaluator profile hash
-- `lobtrainer.data.feature_set_resolver._compute_content_hash` — trainer-side inline
-  (kept inlined for cross-venv isolation per Phase 4 R-architecture; locked to
-  byte parity via `lob-model-trainer/tests/test_feature_set_resolver_parity.py`)
+- `lobtrainer.data.feature_set_resolver._compute_content_hash` — trainer
+  delegation (Phase 6 6B.2 retired the inline mirror; trainer now imports
+  `canonical_json_blob` + `sha256_hex` from here directly). Drift detector:
+  `lob-model-trainer/tests/test_feature_set_resolver.py::TestCanonicalHashGolden`
+  (which replaced the deleted `test_feature_set_resolver_parity.py`).
 
 Extracted 2026-04-15 as a Phase 4 Batch 4c hardening measure after an
 adversarial architectural audit identified 5 independent implementations
 of the same canonical form — a convergent-evolution risk that would have
-caused silent hash drift if any single site diverged.
+caused silent hash drift if any single site diverged. Phase 6 6B.2
+(2026-04-17) closed the last duplication site (trainer inline).
 
 **Frozen contract** (must never change without a new symbol name):
 
