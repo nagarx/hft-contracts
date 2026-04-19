@@ -40,11 +40,18 @@ in the private monorepo; the 9 pre-2.2.0 commits are preserved in
     `hft-ops/provenance/lineage.py` (6B.4).
   - `SignalManifest` + (then `_CONTENT_HASH_RE`) — co-moved from
     `lob-backtester/src/lobbacktest/data/signal_manifest.py` (6B.5).
-- **9 regression tests** locking REV 2 architectural invariants:
+- **11 regression tests** locking REV 2 architectural invariants:
   `ContractError` cross-module identity, shim identity for `_atomic_io`
-  and `_CONTENT_HASH_RE`, shim DeprecationWarning emission, shim
-  non-public-attribute rejection, `__version__` presence + SemVer
+  and `_CONTENT_HASH_RE`, shim DeprecationWarning emission (both
+  `_atomic_io` module-level and `_CONTENT_HASH_RE` name-level telemetry),
+  shim non-public-attribute rejection, `__version__` presence + SemVer
   format + pyproject.toml agreement.
+- **`py.typed` marker** (REV 2 follow-up) — PEP 561 compliance for the
+  `Typing :: Typed` classifier claim. Enables downstream mypy / pyright
+  / pyre to pick up the package's inline type annotations instead of
+  defaulting to `Any`. Explicit `include` in
+  `[tool.hatch.build.targets.wheel]` ensures the marker ships in the
+  wheel.
 
 ### Changed (REV 2 pre-push hygiene, 2026-04-20)
 
@@ -57,9 +64,11 @@ in the private monorepo; the 9 pre-2.2.0 commits are preserved in
   for removal 2026-10-31.
 - **`_CONTENT_HASH_RE` → public `CONTENT_HASH_RE`**. Same
   cross-module-consumption rationale
-  (`hft-ops/stages/signal_export.py`). `_CONTENT_HASH_RE` retained as a
-  module-level alias pointing at the same compiled pattern;
-  alias removed 2026-10-31 alongside `_atomic_io.py`.
+  (`hft-ops/stages/signal_export.py`). `_CONTENT_HASH_RE` retained
+  through a module-level `__getattr__` shim (REV 2 follow-up —
+  originally a silent alias) that emits one-time `DeprecationWarning`
+  per process citing the migration path + 2026-10-31 removal deadline.
+  Uniform deprecation lifecycle with `_atomic_io.py`.
 - **`signal_manifest.ContractError` → `validation.ContractError`** —
   previously two independent classes with the same name in different
   modules. Consumers catching `from hft_contracts import ContractError`
@@ -80,8 +89,8 @@ in the private monorepo; the 9 pre-2.2.0 commits are preserved in
 
 ### Test counts
 
-- **Authoring env** (hft-ops installed): 298 passing.
-- **Fresh-clone env** (hft-ops absent): 293 passing + 5 skipped
+- **Authoring env** (hft-ops installed): 300 passing.
+- **Fresh-clone env** (hft-ops absent): 295 passing + 5 skipped
   (shim-parity guards skip gracefully via `pytest.importorskip`).
 
 ### Historical
@@ -108,7 +117,9 @@ eaff69b feat: Initial hft-contracts baseline — contract plane SSoT
 - Development (`[dev]` extra): `pytest >= 8`, `pytest-cov >= 4`,
   `ruff >= 0.5`.
 - Codegen (`[generate]` extra): `tomli >= 2.0`.
-- Build: `hatchling >= 1.22` (PEP 639 `license-files` support).
+- Build: `hatchling >= 1.26` (REV 2 follow-up bump — PEP 639 `license` +
+  `license-files` full support in hatchling 1.26+; earlier 1.22 floor
+  was too permissive for constrained CI environments).
 
 ### Consumers (monorepo-internal)
 

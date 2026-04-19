@@ -256,23 +256,14 @@ class TestRev2PrePushHygiene:
         with pytest.raises(PackageLevel):
             manifest.validate(empty_dir)
 
-    def test_content_hash_re_public_alias(self):
-        """F8: ``CONTENT_HASH_RE`` is the public name; ``_CONTENT_HASH_RE``
-        is retained as a DEPRECATED alias pointing at the same compiled
-        pattern.
+    def test_content_hash_re_public(self):
+        """F8: ``CONTENT_HASH_RE`` is the public name, accessible via both
+        package-level and submodule import paths.
         """
         from hft_contracts import CONTENT_HASH_RE as package_level
-        from hft_contracts.signal_manifest import (
-            CONTENT_HASH_RE as public,
-            _CONTENT_HASH_RE as legacy_alias,
-        )
+        from hft_contracts.signal_manifest import CONTENT_HASH_RE as public
 
-        # Same object at all three access paths.
         assert public is package_level
-        assert public is legacy_alias, (
-            "F8 regression: _CONTENT_HASH_RE drifted from CONTENT_HASH_RE. "
-            "Alias must point at the same compiled pattern until 2026-10-31."
-        )
 
         # Functional: accepts 64-char lowercase hex only.
         assert public.match("a" * 64)
@@ -281,3 +272,60 @@ class TestRev2PrePushHygiene:
         assert not public.match("g" * 64)  # non-hex rejected
         assert not public.match("a" * 63)  # too short
         assert not public.match("a" * 65)  # too long
+
+    def test_content_hash_re_legacy_alias_resolves_via_getattr(self):
+        """F8 REV 2 follow-up: ``_CONTENT_HASH_RE`` still resolves to the
+        same compiled pattern via module-level ``__getattr__``. Retained as
+        a back-compat surface until 2026-10-31. This test suppresses the
+        DeprecationWarning — the separate
+        ``test_content_hash_re_legacy_alias_emits_deprecation_warning``
+        test verifies warning telemetry.
+        """
+        import warnings
+
+        from hft_contracts.signal_manifest import CONTENT_HASH_RE as public
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from hft_contracts.signal_manifest import (
+                _CONTENT_HASH_RE as legacy_alias,
+            )
+
+        assert legacy_alias is public, (
+            "F8 regression: _CONTENT_HASH_RE resolved to an object OTHER "
+            "than CONTENT_HASH_RE. Consumers relying on `is` identity would "
+            "silently break."
+        )
+
+    def test_content_hash_re_legacy_alias_emits_deprecation_warning(self):
+        """F8 REV 2 follow-up: accessing ``_CONTENT_HASH_RE`` via the
+        deprecation shim fires a one-time ``DeprecationWarning`` with the
+        migration path + removal date. Matches the ``_atomic_io`` shim
+        pattern — every deprecated contract-plane name has uniform telemetry.
+        """
+        import importlib
+        import warnings
+
+        # Re-import to reset the per-process ``_LEGACY_NAMES_WARNED`` set
+        # (another test may have already consumed the warning).
+        import hft_contracts.signal_manifest as sm
+
+        importlib.reload(sm)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            _ = sm._CONTENT_HASH_RE  # triggers module-level __getattr__
+
+        dep = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(dep) >= 1, (
+            "F8 telemetry regression: accessing _CONTENT_HASH_RE did NOT "
+            "emit DeprecationWarning. Consumers would hit the 2026-10-31 "
+            "removal without migration signal."
+        )
+        msg = str(dep[0].message)
+        assert "CONTENT_HASH_RE" in msg, (
+            "DeprecationWarning message missing canonical public name."
+        )
+        assert "2026-10-31" in msg, (
+            "DeprecationWarning message missing removal deadline."
+        )

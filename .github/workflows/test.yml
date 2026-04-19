@@ -43,5 +43,8 @@ jobs:
 
       - name: Lint (non-blocking)
         # ruff check is informational on first-public-release CI. A
-        # follow-up PR will add ruff config + make this gating.
-        run: ruff check src tests || true
+        # follow-up PR will add a [tool.ruff] config + make this gating.
+        # `continue-on-error` keeps the step's exit code in the UI
+        # (yellow/red instead of silent green from `|| true`).
+        continue-on-error: true
+        run: ruff check src tests

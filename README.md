@@ -4,7 +4,7 @@ Single source of truth for every cross-module data contract in the HFT
 pipeline — feature indices, label contracts, provenance, canonical
 hashing, FeatureSet registry schema, and atomic I/O.
 
-**Version**: 2.2.0 | **Schema**: 2.2 | **Tests**: 298 (293 + 5 hft-ops-conditional) | **Last Updated**: 2026-04-20
+**Version**: 2.2.0 | **Schema**: 2.2 | **Tests**: 300 (295 + 5 hft-ops-conditional) | **Last Updated**: 2026-04-20 (REV 2 public-push + follow-up hardening)
 
 ---
 
@@ -122,17 +122,17 @@ pytest -q --ignore=tests/<slow>.py       # subsets
 
 **Test-count breakdown** (2026-04-20):
 
-- **293 self-contained** — pure `hft-contracts` tests; run anywhere.
+- **295 self-contained** — pure `hft-contracts` tests; run anywhere.
 - **5 hft-ops-conditional** — shim-parity regression guards (locked by
   REV 2 Stage 0) verifying that Phase 6 re-export shims in `hft-ops`
   (for `ExperimentRecord`, `FeatureSet`, `atomic_write_json`) continue
   to return the SAME object as the canonical `hft-contracts` symbol.
   These tests **SKIP automatically** when `hft-ops` is not installed
   (fresh-clone mode) via `pytest.importorskip` — so
-  `pip install hft-contracts` → `pytest -q` reports 293 pass + 5 skip,
+  `pip install hft-contracts` → `pytest -q` reports 295 pass + 5 skip,
   never ERROR.
 
-Install hft-ops alongside hft-contracts to run all 298.
+Install hft-ops alongside hft-contracts to run all 300.
 
 ---
 

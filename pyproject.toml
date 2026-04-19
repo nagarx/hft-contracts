@@ -1,5 +1,9 @@
 [build-system]
-requires = ["hatchling>=1.22"]
+# hatchling >=1.26 required for PEP 639 `license` SPDX expression +
+# `license-files` key. Older hatchling parses these keys but only
+# partially; pin the higher floor to prevent mysterious build failures
+# in constrained CI environments.
+requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
@@ -62,3 +66,8 @@ Issues = "https://github.com/nagarx/hft-contracts/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hft_contracts"]
+# PEP 561: ship the py.typed marker so downstream consumers' mypy /
+# pyright / pyre pick up inline type annotations. Hatchling bundles
+# non-Python files inside the packages directory by default, but the
+# explicit include avoids surprises with future hatchling defaults.
+include = ["src/hft_contracts/py.typed"]

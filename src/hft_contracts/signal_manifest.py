@@ -51,10 +51,21 @@ from hft_contracts.validation import ContractError
 # REV 2 pre-push (2026-04-20): renamed from module-private ``_CONTENT_HASH_RE``
 # to public ``CONTENT_HASH_RE``. The underscore-prefix was a mis-classification
 # since ``hft-ops/src/hft_ops/stages/signal_export.py`` imports it across the
-# module boundary. ``_CONTENT_HASH_RE`` kept as a DEPRECATED alias for
-# pre-REV-2 importers; scheduled for removal 2026-10-31.
+# module boundary.
+#
+# Legacy access via ``_CONTENT_HASH_RE`` is gated through the module-level
+# ``__getattr__`` below — consumers receive a one-time ``DeprecationWarning``
+# citing the migration path + 2026-10-31 removal deadline. This matches the
+# Phase 6 6B.5 backtester-shim pattern and the REV 2 ``_atomic_io`` shim so
+# every deprecated name in the contract plane has uniform migration telemetry.
 CONTENT_HASH_RE = re.compile(r"^[a-f0-9]{64}$")
-_CONTENT_HASH_RE = CONTENT_HASH_RE  # DEPRECATED: use CONTENT_HASH_RE. Removed 2026-10-31.
+
+# REV 2 pre-push follow-up (2026-04-20): deprecation telemetry for
+# ``_CONTENT_HASH_RE``. The alias pointer (via ``__getattr__``) returns the
+# SAME compiled pattern, so consumers observe identical matching behavior;
+# only the import path emits the warning.
+_CONTENT_HASH_RE_REMOVAL_DATE = "2026-10-31"
+_LEGACY_NAMES_WARNED: set[str] = set()
 
 
 # --- Signal file definitions ---
@@ -381,3 +392,41 @@ __all__ = [
     "HYBRID_OPTIONAL",
     "ALIGNED_FILES",
 ]
+
+
+def __getattr__(name: str):  # noqa: D401
+    """Module-level lazy attribute resolver for REV 2 deprecation shims.
+
+    REV 2 pre-push follow-up (2026-04-20): gates access to the legacy
+    ``_CONTENT_HASH_RE`` name. Access via the module emits a one-time
+    ``DeprecationWarning`` citing the migration path + calendar removal
+    deadline (``2026-10-31``) and returns the canonical ``CONTENT_HASH_RE``
+    compiled pattern — consumers observe identical matching behavior while
+    receiving migration telemetry. Matches the Phase 6 6B.5 backtester-shim
+    and REV 2 ``_atomic_io`` shim patterns so every deprecated name in the
+    contract plane has uniform deprecation lifecycle.
+
+    This is a MODULE-level ``__getattr__`` (PEP 562) — Python falls back to
+    it only for names NOT already defined in the module's ``__dict__``. So
+    this does NOT shadow ``CONTENT_HASH_RE``, ``SignalManifest``, etc.,
+    which remain instant attribute lookups.
+    """
+    if name == "_CONTENT_HASH_RE":
+        import warnings as _warnings
+
+        if name not in _LEGACY_NAMES_WARNED:
+            _LEGACY_NAMES_WARNED.add(name)
+            _warnings.warn(
+                f"`hft_contracts.signal_manifest._CONTENT_HASH_RE` is a "
+                f"REV 2 deprecation alias. Migrate to "
+                f"`from hft_contracts.signal_manifest import CONTENT_HASH_RE` "
+                f"(or `from hft_contracts import CONTENT_HASH_RE`) before "
+                f"the {_CONTENT_HASH_RE_REMOVAL_DATE} removal deadline. "
+                f"(This warning fires once per process.)",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return CONTENT_HASH_RE
+    raise AttributeError(
+        f"module 'hft_contracts.signal_manifest' has no attribute {name!r}"
+    )
