@@ -1,0 +1,14 @@
+Copyright (c) 2026 nagarx. All rights reserved.
+
+This code is proprietary and confidential. Unauthorized copying,
+distribution, modification, or use in any form, in whole or in part,
+is strictly prohibited without explicit written permission from the
+copyright holder.
+
+Dependent packages within the HFT pipeline (including but not limited
+to hft-ops, lob-model-trainer, lob-backtester, hft-feature-evaluator,
+lob-dataset-analyzer, feature-extractor-MBO-LOB, mbo-statistical-profiler,
+opra-statistical-profiler, basic-quote-processor, hft-metrics, and
+hft-statistics) consume this package under the same terms.
+
+SPDX-License-Identifier: LicenseRef-Proprietary
