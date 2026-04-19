@@ -9,6 +9,7 @@ are contract-plane concerns.
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -728,9 +729,21 @@ class TestAtomicSave:
         assert leftover == []
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("hft_ops") is None,
+    reason=(
+        "hft_ops not installed — shim-parity regression guard skipped on "
+        "fresh-clone installs of hft-contracts. Runs in authoring env."
+    ),
+)
 class TestHftOpsShimCompat:
     """Back-compat: pre-6B.1a imports through hft_ops.ledger.experiment_record
     must still work, returning the SAME class (not a copy).
+
+    REV 2 pre-push (2026-04-20): class-level skip marker so fresh-clone
+    users (who install only hft-contracts) get `pytest -q` → all tests
+    SKIP gracefully rather than ERROR with ModuleNotFoundError. Running
+    `pip install hft-ops` re-enables these guards automatically.
     """
 
     def test_hft_ops_reexport_is_identical_class(self):

@@ -8,6 +8,8 @@ via the content_hash.
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 from hft_contracts.feature_sets import (
@@ -228,9 +230,21 @@ class TestValidateFeatureSetDict:
             validate_feature_set_dict(d)
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("hft_ops") is None,
+    reason=(
+        "hft_ops not installed — shim-parity regression guard skipped on "
+        "fresh-clone installs of hft-contracts. Runs in authoring env."
+    ),
+)
 class TestHftOpsShimCompat:
     """Back-compat: pre-6B.3 imports through hft_ops.feature_sets must
     still work, returning the SAME classes (not a copy).
+
+    REV 2 pre-push (2026-04-20): class-level skip marker so fresh-clone
+    users (who install only hft-contracts) get `pytest -q` → all tests
+    SKIP gracefully rather than ERROR with ModuleNotFoundError. Running
+    `pip install hft-ops` re-enables these guards automatically.
     """
 
     def test_hft_ops_feature_sets_reexport_is_identical_class(self):
