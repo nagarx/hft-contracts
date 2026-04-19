@@ -1,22 +1,64 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.22"]
 build-backend = "hatchling.build"
 
 [project]
 name = "hft-contracts"
 version = "2.2.0"
-description = "Single source of truth for HFT pipeline cross-module contracts"
+description = "Single source of truth for HFT pipeline cross-module contracts (features, labels, provenance, canonical-hash, atomic-I/O)"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+authors = [{ name = "nagarx" }]
+keywords = [
+    "hft",
+    "trading",
+    "market-microstructure",
+    "contracts",
+    "schema",
+    "pipeline",
+    "limit-order-book",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
 dependencies = [
     # numpy is used by label_factory.py (long-standing, Phase 4) and
     # signal_manifest.py (Phase 6 6B.5 move). Declare explicitly so
     # consumers don't rely on implicit install context.
-    "numpy>=1.26",
+    # Upper bound <3.0 protects against NumPy 3 breaking changes.
+    "numpy>=1.26,<3.0",
 ]
 
 [project.optional-dependencies]
+# Required only when regenerating `_generated.py` from
+# `contracts/pipeline_contract.toml`. Codegen lives at the monorepo root;
+# standalone consumers never need this extra (the generated file is checked
+# into git as a release artifact).
 generate = ["tomli>=2.0"]
+# Development dependencies for running the test suite + linting. Fresh-clone
+# contributors: `pip install -e '.[dev]'`.
+dev = [
+    "pytest>=8",
+    "pytest-cov>=4",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/nagarx/hft-contracts"
+Repository = "https://github.com/nagarx/hft-contracts"
+Issues = "https://github.com/nagarx/hft-contracts/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hft_contracts"]
