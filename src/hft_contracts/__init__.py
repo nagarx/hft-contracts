@@ -2,17 +2,25 @@
 HFT Pipeline Contracts — Single Source of Truth.
 
 This package provides the authoritative definitions for all cross-module
-data contracts in the HFT pipeline. All Python consumers (lobtrainer,
-lobanalyzer, lobbacktest) import from here instead of maintaining
+data contracts in the HFT pipeline. All Python consumers (hft-ops,
+lob-model-trainer, lob-backtester, hft-feature-evaluator,
+lob-dataset-analyzer) import from here instead of maintaining
 independent copies.
 
-Generated from: contracts/pipeline_contract.toml
+Generated from: contracts/pipeline_contract.toml (at monorepo root)
 Regenerate with: python contracts/generate_python_contract.py
+
+Note: codegen requires the full HFT-pipeline-v2 monorepo checkout since
+the TOML source-of-truth lives at the monorepo root, not inside
+hft-contracts. Standalone clones consume ``_generated.py`` as-committed.
 
 Usage:
     from hft_contracts import FeatureIndex, FEATURE_COUNT, TLOB_CONTRACT
     from hft_contracts import validate_export_contract, ContractError
+    from hft_contracts import atomic_write_json, CONTENT_HASH_RE
 """
+
+__version__ = "2.2.0"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
@@ -303,6 +311,7 @@ __all__ = [
     "NOT_GIT_TRACKED_SENTINEL",
     "PROVENANCE_SCHEMA_VERSION",
     "SignalManifest",
+    "CONTENT_HASH_RE",
     "ExperimentRecord",
     "RecordType",
     "FeatureSet",
@@ -317,6 +326,12 @@ __all__ = [
     # Phase 7 Stage 7.4 Round 5: gate-report contract
     "GATE_STATUS_VALUES",
     "GateReportDict",
+    # REV 2 pre-push (2026-04-20): atomic-I/O public API (renamed from
+    # hft_contracts._atomic_io; underscore shim retained through 2026-10-31).
+    "atomic_write_json",
+    "AtomicWriteError",
+    # Package version (REV 2 pre-push).
+    "__version__",
 ]
 
 # -- Canonical hashing primitives (Phase 4 Batch 4c hardening, 2026-04-15) --
@@ -348,7 +363,7 @@ from hft_contracts.provenance import (
     NOT_GIT_TRACKED_SENTINEL,
     PROVENANCE_SCHEMA_VERSION,
 )
-from hft_contracts.signal_manifest import SignalManifest
+from hft_contracts.signal_manifest import SignalManifest, CONTENT_HASH_RE
 from hft_contracts.experiment_record import ExperimentRecord, RecordType
 from hft_contracts.feature_sets import (
     FeatureSet,
@@ -361,6 +376,13 @@ from hft_contracts.feature_sets import (
     compute_feature_set_hash,
     validate_feature_set_dict,
 )
+
+# -- Atomic I/O primitive (REV 2 pre-push, 2026-04-20) --
+# Renamed from ``hft_contracts._atomic_io`` to the public
+# ``hft_contracts.atomic_io``. ``_atomic_io`` remains as a deprecation
+# shim (removal 2026-10-31). Imported here so ``from hft_contracts import
+# atomic_write_json, AtomicWriteError`` is the canonical public access.
+from hft_contracts.atomic_io import atomic_write_json, AtomicWriteError
 # Phase 7 Stage 7.4 Round 5 (2026-04-20): gate-report dict contract +
 # status-value constant. Documents the convention for
 # ``StageResult.captured_metrics["gate_report"]`` dicts consumed by

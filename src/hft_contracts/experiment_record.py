@@ -35,7 +35,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from hft_contracts._atomic_io import atomic_write_json
+from hft_contracts.atomic_io import atomic_write_json
 from hft_contracts.provenance import Provenance
 
 
@@ -245,7 +245,7 @@ class ExperimentRecord:
         """Save record to a JSON file atomically.
 
         Phase 7 Stage 7.4 Round 5 (2026-04-20): delegates to the
-        canonical ``hft_contracts._atomic_io.atomic_write_json`` (tmp
+        canonical ``hft_contracts.atomic_io.atomic_write_json`` (tmp
         + fsync + os.replace) — unified with
         ``hft_ops.feature_sets.writer.atomic_write_json`` and
         ``hft_ops.ledger.ledger._save_index`` to prevent serialization-

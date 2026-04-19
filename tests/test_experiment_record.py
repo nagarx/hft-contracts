@@ -488,9 +488,14 @@ class TestGateReportsFingerprintStability:
 
 class TestAtomicWriteJsonCrashSafety:
     """Phase 7 Stage 7.4 Round 5 (2026-04-20): ``atomic_write_json`` in
-    ``hft_contracts._atomic_io`` must handle BOTH ``OSError`` (disk
+    ``hft_contracts.atomic_io`` must handle BOTH ``OSError`` (disk
     issues) and non-OSError exceptions (TypeError from non-serializable
     values, KeyboardInterrupt mid-fsync) by cleaning up the tmp file.
+
+    REV 2 pre-push (2026-04-20): tests now import from the canonical
+    public ``hft_contracts.atomic_io``. Shim-identity regression test
+    (deprecated ``_atomic_io`` still resolves to the same functions) is
+    in ``TestAtomicIoShimCompat`` below.
     """
 
     def test_typeerror_cleans_up_tmp(self, tmp_path: Path):
@@ -498,7 +503,7 @@ class TestAtomicWriteJsonCrashSafety:
         cleanup path must unlink the tmp file — leaking orphans would
         accumulate over many runs.
         """
-        from hft_contracts._atomic_io import atomic_write_json
+        from hft_contracts.atomic_io import atomic_write_json
 
         class NotSerializable:
             """default=str produces a string, but a circular list inside raises."""
@@ -526,7 +531,7 @@ class TestAtomicWriteJsonCrashSafety:
         Locks the decision that Round 5 unified all atomic writes on
         this form (diff-stable + POSIX text-file convention).
         """
-        from hft_contracts._atomic_io import atomic_write_json
+        from hft_contracts.atomic_io import atomic_write_json
 
         target = tmp_path / "canonical.json"
         atomic_write_json(target, {"z": 3, "a": 1, "m": 2})
@@ -541,15 +546,82 @@ class TestAtomicWriteJsonCrashSafety:
         """``hft_ops.feature_sets.writer.atomic_write_json`` re-exports
         the canonical hft_contracts implementation — not a copy.
         """
-        from hft_contracts._atomic_io import atomic_write_json as canonical
-        from hft_ops.feature_sets.writer import (
-            atomic_write_json as reexported,
-        )
-        assert reexported is canonical
+        hft_ops_writer = pytest.importorskip("hft_ops.feature_sets.writer")
+        from hft_contracts.atomic_io import atomic_write_json as canonical
+        assert hft_ops_writer.atomic_write_json is canonical
 
-        from hft_contracts._atomic_io import AtomicWriteError as canonical_err
-        from hft_ops.feature_sets.writer import AtomicWriteError as reexported_err
-        assert reexported_err is canonical_err
+        from hft_contracts.atomic_io import AtomicWriteError as canonical_err
+        assert hft_ops_writer.AtomicWriteError is canonical_err
+
+
+class TestAtomicIoShimCompat:
+    """REV 2 pre-push hygiene regression (2026-04-20): the renamed module
+    ``hft_contracts._atomic_io`` → ``hft_contracts.atomic_io`` keeps the
+    underscore-prefix name as a deprecation shim until 2026-10-31.
+
+    These tests lock:
+
+    - Shim resolves attribute access to the SAME objects as the canonical
+      module (no copies, no divergence).
+    - Shim emits ``DeprecationWarning`` on first access per symbol.
+    - Non-public attribute access raises ``AttributeError`` (shim does
+      not accidentally forward arbitrary names).
+    """
+
+    def test_shim_resolves_same_objects_as_canonical(self):
+        """``hft_contracts._atomic_io.atomic_write_json`` IS
+        ``hft_contracts.atomic_io.atomic_write_json`` (same function)."""
+        import warnings
+
+        import hft_contracts._atomic_io as shim
+        import hft_contracts.atomic_io as canonical
+
+        with warnings.catch_warnings():
+            # Shim access may emit DeprecationWarning — we test that
+            # separately in test_shim_emits_deprecation_warning.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            assert shim.atomic_write_json is canonical.atomic_write_json
+            assert shim.AtomicWriteError is canonical.AtomicWriteError
+
+    def test_shim_emits_deprecation_warning_on_first_access(self):
+        """Accessing a symbol via the shim triggers DeprecationWarning
+        with the canonical migration path in the message.
+        """
+        import importlib
+        import warnings
+
+        # Re-import to reset the per-process _WARNED set — tests may run in
+        # any order and another test may have already consumed the warning.
+        import hft_contracts._atomic_io as shim
+        importlib.reload(shim)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            _ = shim.atomic_write_json  # triggers __getattr__
+
+        dep_warnings = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(dep_warnings) >= 1, (
+            "F2 regression: hft_contracts._atomic_io.atomic_write_json access "
+            "did NOT emit DeprecationWarning. Shim telemetry broken — "
+            "consumers will silently continue importing from the deprecated "
+            "path past the 2026-10-31 removal date."
+        )
+        msg = str(dep_warnings[0].message)
+        assert "hft_contracts.atomic_io" in msg
+        assert "2026-10-31" in msg
+
+    def test_shim_rejects_non_public_attributes(self):
+        """Shim should NOT transparently forward arbitrary module internals
+        — only the publicly-contracted names (atomic_write_json,
+        AtomicWriteError). Reaching into shim.os etc. must raise
+        AttributeError so callers don't accidentally couple to
+        implementation details through the deprecated path.
+        """
+        import hft_contracts._atomic_io as shim
+
+        with pytest.raises(AttributeError):
+            _ = shim.os  # os is a stdlib import inside the canonical module,
+                         # but must NOT be exposed through the shim
 
 
 class TestAtomicSave:
@@ -613,9 +685,12 @@ class TestAtomicSave:
         original target file (if any) must remain untouched and the
         tmp file must be cleaned up.
 
-        Phase 7 Stage 7.4 Round 5: patches ``hft_contracts._atomic_io``
+        Phase 7 Stage 7.4 Round 5: patches ``hft_contracts.atomic_io``
         (canonical location) — previously patched ``experiment_record``
         when the helper lived there inline.
+
+        REV 2 pre-push (2026-04-20): canonical module renamed from
+        ``_atomic_io`` to the public ``atomic_io``.
         """
         save_path = tmp_path / "records" / "crash_safe.json"
         r1 = ExperimentRecord(
@@ -627,7 +702,7 @@ class TestAtomicSave:
 
         # Monkeypatch os.replace in the canonical atomic-io module —
         # simulates crash after fsync but before the atomic swap.
-        from hft_contracts import _atomic_io as io_mod
+        from hft_contracts import atomic_io as io_mod
 
         def _fail_replace(src, dst):
             # Clean up the tmp ourselves to keep the test isolated.

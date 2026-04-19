@@ -196,3 +196,88 @@ class TestSummary:
         assert "tlob" in summary
         assert "100" in summary
         assert "0.4640" in summary  # r2 formatted
+
+
+class TestRev2PrePushHygiene:
+    """REV 2 pre-push architectural hygiene regression tests (2026-04-20).
+
+    These tests lock invariants established by Stage 0 of the hft-contracts
+    public-push plan:
+
+    - F1: ``ContractError`` is a SINGLE class (was previously defined twice
+      in validation.py and signal_manifest.py — consumers catching one
+      missed errors from the other).
+    - F8: ``CONTENT_HASH_RE`` (public) is the canonical regex; the old
+      ``_CONTENT_HASH_RE`` name is a module-level alias for pre-REV-2
+      importers, scheduled for removal 2026-10-31.
+
+    See ``/Users/knight/.claude/plans/gentle-brewing-quail.md`` (REV 2 plan).
+    """
+
+    def test_contract_error_is_single_class_across_modules(self):
+        """F1: ``hft_contracts.validation.ContractError`` and
+        ``hft_contracts.signal_manifest.ContractError`` are the SAME class
+        object (not two independent classes). Consumers catching the
+        package-level ``from hft_contracts import ContractError`` MUST
+        also catch errors raised by ``SignalManifest.validate()``.
+        """
+        import hft_contracts
+        import hft_contracts.validation as v
+        import hft_contracts.signal_manifest as sm
+
+        assert v.ContractError is sm.ContractError, (
+            "F1 regression: validation.ContractError and "
+            "signal_manifest.ContractError diverged — consumers catching "
+            "one will silently miss errors from the other."
+        )
+        assert hft_contracts.ContractError is v.ContractError
+        assert hft_contracts.ContractError is sm.ContractError
+
+    def test_signal_manifest_validate_raises_package_level_contract_error(
+        self, tmp_path: Path,
+    ):
+        """F1 end-to-end: catching the package-level ContractError catches
+        errors raised from within SignalManifest.validate() (the pre-REV-2
+        bug was this DID NOT catch because the classes were independent).
+        """
+        from hft_contracts import ContractError as PackageLevel
+
+        # signal_dir missing required prices.npy → ContractError
+        empty_dir = tmp_path / "empty_signals"
+        empty_dir.mkdir()
+        manifest = SignalManifest(
+            signal_type="classification",
+            model_type="unknown",
+            split="test",
+            n_samples=0,
+            required_files=["prices.npy"],
+        )
+
+        with pytest.raises(PackageLevel):
+            manifest.validate(empty_dir)
+
+    def test_content_hash_re_public_alias(self):
+        """F8: ``CONTENT_HASH_RE`` is the public name; ``_CONTENT_HASH_RE``
+        is retained as a DEPRECATED alias pointing at the same compiled
+        pattern.
+        """
+        from hft_contracts import CONTENT_HASH_RE as package_level
+        from hft_contracts.signal_manifest import (
+            CONTENT_HASH_RE as public,
+            _CONTENT_HASH_RE as legacy_alias,
+        )
+
+        # Same object at all three access paths.
+        assert public is package_level
+        assert public is legacy_alias, (
+            "F8 regression: _CONTENT_HASH_RE drifted from CONTENT_HASH_RE. "
+            "Alias must point at the same compiled pattern until 2026-10-31."
+        )
+
+        # Functional: accepts 64-char lowercase hex only.
+        assert public.match("a" * 64)
+        assert public.match("0" * 64)
+        assert not public.match("A" * 64)  # uppercase rejected
+        assert not public.match("g" * 64)  # non-hex rejected
+        assert not public.match("a" * 63)  # too short
+        assert not public.match("a" * 65)  # too long

@@ -557,3 +557,52 @@ class TestOffExchangeSpecificMembers:
 
     def test_schema_version_string(self):
         assert OFF_EXCHANGE_SCHEMA_VERSION == "1.0"
+
+
+class TestPackageVersion:
+    """REV 2 pre-push (2026-04-20): ``hft_contracts.__version__`` exists
+    and matches ``pyproject.toml``. Lock for fresh-clone users running
+    ``python -c "import hft_contracts; print(hft_contracts.__version__)"``
+    as an install sanity check.
+    """
+
+    def test_version_attribute_present(self):
+        import hft_contracts
+        assert hasattr(hft_contracts, "__version__"), (
+            "F-version regression: hft_contracts.__version__ attribute missing. "
+            "Fresh-clone install smoke test relies on this."
+        )
+
+    def test_version_format_semver(self):
+        import re
+        import hft_contracts
+        assert re.match(r"^\d+\.\d+\.\d+", hft_contracts.__version__), (
+            f"Version {hft_contracts.__version__!r} is not SemVer-compatible."
+        )
+
+    def test_version_matches_pyproject(self):
+        """__version__ in __init__.py must agree with pyproject.toml.
+
+        A follow-up PR may wire ``[tool.hatch.version] path`` for dynamic
+        versioning to prevent this drift mechanically — for now we assert
+        it manually.
+        """
+        import re
+        from pathlib import Path
+
+        import hft_contracts
+
+        # Walk up from this test file to find pyproject.toml (repo root).
+        root = Path(__file__).resolve().parent.parent
+        pyproject = root / "pyproject.toml"
+        assert pyproject.exists(), f"pyproject.toml not found at {pyproject}"
+
+        text = pyproject.read_text()
+        match = re.search(r'^version\s*=\s*"([^"]+)"', text, flags=re.MULTILINE)
+        assert match, "version field not found in pyproject.toml"
+        assert match.group(1) == hft_contracts.__version__, (
+            f"pyproject.toml version {match.group(1)!r} differs from "
+            f"__init__.py __version__ {hft_contracts.__version__!r}. "
+            "Keep them in sync, or wire [tool.hatch.version] for dynamic "
+            "single-source-of-truth."
+        )

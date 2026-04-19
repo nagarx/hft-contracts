@@ -11,8 +11,12 @@ Array layout (with smoothing_window_offset k):
 All return values are in basis points (return * 10000).
 
 Reference: Matches Rust implementations in
-    feature-extractor-MBO-LOB/src/labeling/multi_horizon.rs (lines 1072-1098)
-    feature-extractor-MBO-LOB/src/labeling/magnitude.rs (lines 50-132)
+    feature-extractor-MBO-LOB/crates/hft-labeling/src/multi_horizon.rs (lines 1072-1098)
+    feature-extractor-MBO-LOB/crates/hft-labeling/src/magnitude.rs (lines 50-132)
+
+Post multi-crate decomposition (April 2026), the labeling logic lives in
+the ``hft-labeling`` crate, not the legacy ``src/labeling/`` monolith.
+Bit-for-bit parity locked via tests/test_label_factory.py (golden fixtures).
 """
 
 from dataclasses import dataclass

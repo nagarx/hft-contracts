@@ -32,20 +32,29 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+# REV 2 pre-push (2026-04-20): ``ContractError`` is now a single class
+# owned by ``hft_contracts.validation``. Previously this module defined
+# its own independent ``ContractError`` class, which meant consumers
+# catching ``from hft_contracts import ContractError`` (the validation
+# one) missed errors raised by ``SignalManifest.validate()`` (the
+# signal_manifest one). Both now resolve to the SAME class. Kept in the
+# module-local namespace + ``__all__`` so ``from hft_contracts.signal_manifest
+# import ContractError`` remains a valid access path.
+from hft_contracts.validation import ContractError
+
 
 # Phase 6 6A.9 (2026-04-17): module-level regex for content_hash validation.
 # Matches hft_contracts.canonical_hash.sha256_hex output format (64 lowercase
 # hex chars). Contract: pipeline_contract.toml:1211 specifies this pattern.
 # Module-level (not per-call) so re.compile runs once at import time.
-_CONTENT_HASH_RE = re.compile(r"^[a-f0-9]{64}$")
-
-
-class ContractError(Exception):
-    """Signal contract violation.
-
-    Raised when a signal directory fails validation: missing required
-    files, shape mismatches, or non-finite values.
-    """
+#
+# REV 2 pre-push (2026-04-20): renamed from module-private ``_CONTENT_HASH_RE``
+# to public ``CONTENT_HASH_RE``. The underscore-prefix was a mis-classification
+# since ``hft-ops/src/hft_ops/stages/signal_export.py`` imports it across the
+# module boundary. ``_CONTENT_HASH_RE`` kept as a DEPRECATED alias for
+# pre-REV-2 importers; scheduled for removal 2026-10-31.
+CONTENT_HASH_RE = re.compile(r"^[a-f0-9]{64}$")
+_CONTENT_HASH_RE = CONTENT_HASH_RE  # DEPRECATED: use CONTENT_HASH_RE. Removed 2026-10-31.
 
 
 # --- Signal file definitions ---
@@ -170,7 +179,7 @@ class SignalManifest:
         # Phase 4 Batch 4c.4: read-only propagation of FeatureSet registry
         # reference. Validates shape ({"name": str, "content_hash": str})
         # AND content_hash format (SHA-256 hex, 64 lowercase chars) via
-        # _CONTENT_HASH_RE. Does NOT recompute content_hash.
+        # CONTENT_HASH_RE. Does NOT recompute content_hash.
         # Phase 6 6A.9 (2026-04-17): regex gate matches hft-ops harvester
         # — producer/consumer symmetry prevents asymmetric acceptance.
         feature_set_ref: Optional[Dict[str, str]] = None
@@ -181,7 +190,7 @@ class SignalManifest:
             if (
                 isinstance(name, str)
                 and isinstance(content_hash, str)
-                and _CONTENT_HASH_RE.match(content_hash)
+                and CONTENT_HASH_RE.match(content_hash)
             ):
                 feature_set_ref = {"name": name, "content_hash": content_hash}
 
@@ -362,6 +371,7 @@ class SignalManifest:
 
 __all__ = [
     "ContractError",
+    "CONTENT_HASH_RE",
     "SignalManifest",
     "CLASSIFICATION_REQUIRED",
     "CLASSIFICATION_OPTIONAL",
