@@ -314,6 +314,9 @@ __all__ = [
     "FEATURE_SET_SCHEMA_VERSION",
     "compute_feature_set_hash",
     "validate_feature_set_dict",
+    # Phase 7 Stage 7.4 Round 5: gate-report contract
+    "GATE_STATUS_VALUES",
+    "GateReportDict",
 ]
 
 # -- Canonical hashing primitives (Phase 4 Batch 4c hardening, 2026-04-15) --
@@ -357,4 +360,12 @@ from hft_contracts.feature_sets import (
     FEATURE_SET_SCHEMA_VERSION,
     compute_feature_set_hash,
     validate_feature_set_dict,
+)
+# Phase 7 Stage 7.4 Round 5 (2026-04-20): gate-report dict contract +
+# status-value constant. Documents the convention for
+# ``StageResult.captured_metrics["gate_report"]`` dicts consumed by
+# ``cli.py::_record_experiment`` and projected into ``index_entry()``.
+from hft_contracts.gate_report import (
+    GATE_STATUS_VALUES,
+    GateReportDict,
 )

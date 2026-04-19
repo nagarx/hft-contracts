@@ -1,6 +1,6 @@
 # hft-contracts — Codebase Reference
 
-> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 264 | **Last Updated**: 2026-04-18 (Phase 6 Post-Audit Hardening closeout)
+> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 289 | **Last Updated**: 2026-04-20 (Phase 7 Stage 7.4 Round 5 — gate-report contract + atomic-io unification + classification whitelist)
 
 ## Role in the Pipeline
 
@@ -22,14 +22,16 @@ hft-contracts/
 │   ├── provenance.py          # Provenance + GitInfo + build_provenance (Phase 6 6B.4, co-moved from hft-ops)
 │   ├── signal_manifest.py     # SignalManifest + ContractError + _CONTENT_HASH_RE (Phase 6 6B.5, co-moved from backtester)
 │   ├── experiment_record.py   # ExperimentRecord + RecordType (Phase 6 6B.1a, co-moved from hft-ops — NARROW MOVE; Phase 7 6B.1b will retire `lobtrainer.experiments.ExperimentRegistry`)
-│   └── feature_sets/          # Phase 6 6B.3 co-move (2-of-5: schema + hashing only; writer/registry/producer stay in hft-ops)
-│       ├── __init__.py        # Public-API re-exports
-│       ├── schema.py          # FeatureSet + FeatureSetRef + FeatureSetAppliesTo + FeatureSetProducedBy + validate_feature_set_dict
-│       └── hashing.py         # compute_feature_set_hash (PRODUCT-only SHA-256) + _sanitize_for_hash re-export
-├── tests/                     # 264 tests
+│   ├── feature_sets/          # Phase 6 6B.3 co-move (2-of-5: schema + hashing only; writer/registry/producer stay in hft-ops)
+│   │   ├── __init__.py        # Public-API re-exports
+│   │   ├── schema.py          # FeatureSet + FeatureSetRef + FeatureSetAppliesTo + FeatureSetProducedBy + validate_feature_set_dict
+│   │   └── hashing.py         # compute_feature_set_hash (PRODUCT-only SHA-256) + _sanitize_for_hash re-export
+│   ├── _atomic_io.py          # Phase 7 Stage 7.4 Round 5 (2026-04-20): canonical atomic_write_json + AtomicWriteError — SSoT unified across ExperimentRecord.save, hft-ops ledger _save_index, and hft-ops feature_sets writer (thin re-export shim). Convention: sort_keys=True + trailing newline + BaseException-safe cleanup.
+│   └── gate_report.py         # Phase 7 Stage 7.4 Round 5 (2026-04-20): GateReportDict TypedDict + GATE_STATUS_VALUES frozenset — documents the cross-stage convention for StageResult.captured_metrics["gate_report"] dicts. Consumed by cli.py::_record_experiment generic harvest + ExperimentRecord.gate_reports + index_entry projection.
+├── tests/                     # 289 tests (Round 5: +7 — atomic-io + gate_report + classification whitelist + non-mutating shim)
 │   ├── test_canonical_hash.py            # 44 tests — canonical-form byte-stability + SSoT invariants
 │   ├── test_contract_self_consistency.py # Contract invariants (feature counts sum correctly, etc.)
-│   ├── test_experiment_record.py         # 12 tests — Phase 6 6B.1a mirror tests
+│   ├── test_experiment_record.py         # 37 tests — Phase 6 6B.1a mirror tests + Phase 7 Round 4/5 (gate_reports + atomic save + classification whitelist + non-mutating shim + atomic-io crash-safety)
 │   ├── test_feature_sets.py              # 20 tests — Phase 6 6B.3 mirror tests
 │   ├── test_label_factory.py             # Multi-horizon label-factory parity vs Rust
 │   ├── test_provenance.py                # 21 tests — Phase 6 6B.4 mirror tests
@@ -62,6 +64,8 @@ hft-contracts/
 | `compute_feature_set_hash` | `feature_sets.hashing` | PRODUCT-only SHA-256 over (indices, source_feature_count, contract_version) |
 | `validate_export_contract` | `validation` | Master validator dispatching to 8 gate-level checks |
 | `ContractError` (in validation) | `validation` | Exception for contract violations |
+| `atomic_write_json` / `AtomicWriteError` | `_atomic_io` | Canonical crash-safe JSON write SSoT (Phase 7 Stage 7.4 Round 5, 2026-04-20). tmp + fsync + os.replace + BaseException cleanup. sort_keys=True + trailing newline defaults for diff-stable output. Used by `ExperimentRecord.save`, `hft_ops.ledger.ledger._save_index`, and `hft_ops.feature_sets.writer.atomic_write_json` (thin re-export). |
+| `GateReportDict` / `GATE_STATUS_VALUES` | `gate_report` | Cross-stage gate-report convention (Phase 7 Stage 7.4 Round 5, 2026-04-20). TypedDict + frozenset({"pass","warn","fail","abort"}). Emitted by every stage runner under `captured_metrics["gate_report"]`; consumed by `cli.py::_record_experiment` and projected into `ExperimentRecord.index_entry()["gate_reports"]`. TypedDict (not Protocol) deliberately — upgrade to full Protocol when a 3rd gate ships. |
 
 ## Import Patterns
 
@@ -86,7 +90,7 @@ from hft_contracts.feature_sets.hashing import compute_feature_set_hash
 from hft_contracts.canonical_hash import canonical_json_blob, sha256_hex
 ```
 
-**Legacy (deprecated, Phase 6 6B.{1a/3/4/5} shims emit DeprecationWarning — migrate before 0.4.0 removal)**:
+**Legacy (deprecated, Phase 6 6B.{1a/3/4/5} shims emit DeprecationWarning — migrate before the 2026-10-31 `_REMOVAL_DATE` calendar deadline)**:
 ```python
 from hft_ops.provenance.lineage import Provenance               # DeprecationWarning
 from hft_ops.ledger.experiment_record import ExperimentRecord   # DeprecationWarning
@@ -108,6 +112,11 @@ from lobbacktest.data.signal_manifest import SignalManifest     # DeprecationWar
 - **Phase 4 Batch 4c hardening (2026-04-15)**: `canonical_hash.py` extracted as SSoT. Eliminated 5-site duplication (`hft_ops.ledger.dedup`, `hft_ops.provenance.lineage`, `hft_ops.feature_sets.hashing`, `hft_evaluator.pipeline`, trainer inline).
 - **Phase 6 Post-Audit Hardening (2026-04-17)**: 5 primitives co-moved to hft-contracts (6B.{1a/2/3/4/5}); numpy declared as explicit runtime dep.
 - **Phase 6 post-validation (2026-04-18)**: `hash_directory_manifest` now delegates to `canonical_json_blob` SSoT; `ExperimentRecord.from_dict` is now non-mutating; `_sanitize_for_hash` added to `__all__` for shim back-compat; 20 Phase-6 primitives re-exported at package level.
+
+- **Phase 7 Stage 7.4 Round 4 (2026-04-20)** — `ExperimentRecord` additions:
+  - **`gate_reports: Dict[str, Dict[str, Any]]`** — generic cross-stage gate-report surface, keyed by runner stage name (`"validation"`, `"post_training_gate"`, future `"post_backtest_gate"`, ...). Replaces the Round 1 pattern of nesting post-training gate output under `training_metrics["post_training_gate"]` (which silently failed the flat-scalar-dict convention of `training_metrics` and was filtered out of `index_entry()`). Fingerprint-stable: `gate_reports` content explicitly NOT hashed by `hft_ops.ledger.dedup.compute_fingerprint` — gate outcomes are observations, not treatments. Default `dict()` so older records load without migration; records written 2026-04-19 between Round 1 and Round 4 are lifted via `from_dict` migration shim (removal deadline 2026-08-01).
+  - **`_atomic_write_json` module helper** — `ExperimentRecord.save()` now crash-safe (tmp + fsync + `os.replace`). Prior non-atomic write was vulnerable to silent data loss because the ledger's `_rebuild_index` skips records that fail JSON parse — a half-written record would be visible on disk but invisible to every query.
+  - **`index_entry()` whitelist expansion**: Round 1 added 7 regression `test_*` keys (`test_ic`, `test_directional_accuracy`, `test_r2`, `test_mae`, `test_rmse`, `test_pearson`, `test_profitable_accuracy`) for `PostTrainingGateRunner` prior-best queries. Round 4 added 8 `best_val_*` variants + 1 classification extra (`best_val_ic`, `best_val_directional_accuracy`, `best_val_r2`, `best_val_pearson`, `best_val_profitable_accuracy`, `best_val_loss`, `best_val_mae`, `best_val_rmse`, `best_val_signal_rate`) + surfaces `gate_reports[stage].status` for `ledger list --gate-status` filtering. **Coupling risk**: every whitelist expansion requires `hft-ops ledger rebuild-index` on existing records OR they silently omit the new keys from the index. Auto-invalidation via `index_schema_version` is deferred to Phase 8.
 
 ## Cross-References
 

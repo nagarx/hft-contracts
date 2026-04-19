@@ -35,6 +35,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from hft_contracts._atomic_io import atomic_write_json
 from hft_contracts.provenance import Provenance
 
 
@@ -130,6 +131,31 @@ class ExperimentRecord:
     backtest_metrics: Dict[str, Any] = field(default_factory=dict)
     dataset_health: Dict[str, Any] = field(default_factory=dict)
 
+    # Phase 7 Stage 7.4 Round 4 item #2 (2026-04-20). Generic surface
+    # for stage-level gate reports — keyed by runner stage_name
+    # (``"validation"``, ``"post_training_gate"``, future
+    # ``"post_backtest_gate"``, ...). Inner shape is the runner's own
+    # ``report.to_dict()`` output — deliberately ``Dict[str, Any]``
+    # (not a typed shape) because different gates emit different
+    # field names (``status`` vs ``verdict`` today); a typed
+    # ``GateReportBase`` contract can be introduced later once ≥3
+    # gates stabilize on a common set of fields.
+    #
+    # ``gate_reports`` replaces the Round 1 pattern of nesting under
+    # ``training_metrics["post_training_gate"]`` — that pattern
+    # violated the training_metrics scalar-dict convention AND was
+    # silently filtered from ``index_entry()``. Legacy records load
+    # correctly via the ``from_dict`` migration shim below.
+    #
+    # INVARIANT: gate_reports MUST NOT affect the fingerprint
+    # (``hft-ops/src/hft_ops/ledger/dedup.py::compute_fingerprint``
+    # only hashes the resolved trainer config). The rationale:
+    # identical inputs + identical code produce the same experiment
+    # identity regardless of gate outcome — a gate is an
+    # *observation*, not a *treatment*. Test coverage locked in
+    # ``hft-contracts/tests/test_experiment_record.py::TestGateReportsFingerprintStability``.
+    gate_reports: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
     tags: List[str] = field(default_factory=list)
     hypothesis: str = ""
     description: str = ""
@@ -180,6 +206,17 @@ class ExperimentRecord:
         reads via ``data.get(...)`` so callers can pass the same dict
         multiple times (e.g., through a cache layer) without the second
         call finding ``provenance`` missing.
+
+        Phase 7 Stage 7.4 Round 4 migration shim (2026-04-20, removal
+        deadline 2026-08-01): records written between Round 1
+        (2026-04-19) and Round 4 nested the post-training gate report
+        under ``training_metrics["post_training_gate"]``. Lift it to
+        the new ``gate_reports`` field so the whole ledger loads with
+        uniform shape. ``training_metrics["post_training_gate_summary"]``
+        was a redundant one-line projection of ``.summary()`` — drop
+        rather than migrate (not part of the new contract). Fresh
+        records never emit either key, so after 2026-08-01 the shim
+        is a no-op and can be deleted.
         """
         prov_data = data.get("provenance", {})
         record = cls(**{
@@ -187,13 +224,46 @@ class ExperimentRecord:
             if k in cls.__dataclass_fields__ and k != "provenance"
         })
         record.provenance = Provenance.from_dict(dict(prov_data))
+
+        # Migration shim — lift legacy nested gate report into gate_reports.
+        # Phase 7 Stage 7.4 Round 5 (2026-04-20) hardening: shallow-copy
+        # ``training_metrics`` BEFORE mutating. ``cls(**{...})`` passes the
+        # caller's dict by reference, so ``.pop()`` on ``record.training_metrics``
+        # would mutate ``data["training_metrics"]`` too — surprising callers
+        # that hold the input (cache layers, round-trip tests, etc.). Copy
+        # isolates the mutation to the record's own attribute.
+        record.training_metrics = dict(record.training_metrics)
+        legacy_gate = record.training_metrics.pop("post_training_gate", None)
+        if isinstance(legacy_gate, dict):
+            record.gate_reports.setdefault("post_training_gate", legacy_gate)
+        # Drop the legacy summary projection — redundant with GateReport.summary().
+        record.training_metrics.pop("post_training_gate_summary", None)
+
         return record
 
     def save(self, path: Path) -> None:
-        """Save record to a JSON file."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2, default=str)
+        """Save record to a JSON file atomically.
+
+        Phase 7 Stage 7.4 Round 5 (2026-04-20): delegates to the
+        canonical ``hft_contracts._atomic_io.atomic_write_json`` (tmp
+        + fsync + os.replace) — unified with
+        ``hft_ops.feature_sets.writer.atomic_write_json`` and
+        ``hft_ops.ledger.ledger._save_index`` to prevent serialization-
+        convention drift across the three sites.
+
+        Prior to Round 4, this method used non-atomic
+        ``open(w) + json.dump`` — vulnerable to silent data loss: if
+        the write was interrupted (SIGKILL, ENOSPC, power failure)
+        the record file would be left partial, and
+        ``ExperimentLedger._rebuild_index`` would drop it on the next
+        load (``ledger.py`` catches ``JSONDecodeError`` and skips).
+        That is silent data loss, not corruption.
+
+        Canonical serialization (``sort_keys=True`` + trailing
+        newline) ensures byte-equal output across runs — diff-stable
+        records for git history + content-addressable fingerprinting.
+        """
+        atomic_write_json(path, self.to_dict())
 
     @classmethod
     def load(cls, path: Path) -> ExperimentRecord:
@@ -222,16 +292,50 @@ class ExperimentRecord:
             "training_metrics": {
                 k: v for k, v in self.training_metrics.items()
                 if k in (
-                    # Classification (pre-Phase-7 baseline keys)
+                    # Classification (pre-Phase-7 baseline keys — retroactive records)
                     "accuracy", "macro_f1", "macro_precision", "macro_recall",
                     "best_val_accuracy", "best_val_macro_f1", "best_epoch",
-                    # Regression (Phase 7 Stage 7.4, 2026-04-19) — emitted by
-                    # TrainingRunner when test_metrics.json is present.
-                    # Required by PostTrainingGateRunner for prior-best
-                    # regression IC comparison.
+                    # Regression test-split (Phase 7 Stage 7.4 Round 1,
+                    # 2026-04-19) — emitted by TrainingRunner when
+                    # test_metrics.json is present. Required by
+                    # PostTrainingGateRunner for prior-best regression IC
+                    # comparison.
                     "test_ic", "test_directional_accuracy", "test_r2",
                     "test_mae", "test_rmse", "test_pearson",
                     "test_profitable_accuracy",
+                    # Classification test-split (Phase 7 Stage 7.4 Round 5,
+                    # 2026-04-20) — Round 4 item #2 added
+                    # ``scripts/train.py::_dump_test_metrics`` which
+                    # unconditionally prefixes every key with ``test_``,
+                    # so ClassificationMetrics.to_dict() lands as
+                    # ``test_accuracy`` / ``test_macro_f1`` etc. Without
+                    # whitelisting, these silently vanish from the index
+                    # — identical root cause as the Round 1 regression
+                    # gap Round 4 was meant to fix, shifted from
+                    # regression to classification. Core scalars only
+                    # (no per-class precision/recall/F1 to prevent
+                    # index bloat, mirroring the regression convention).
+                    "test_accuracy", "test_macro_f1",
+                    "test_macro_precision", "test_macro_recall",
+                    "test_loss",
+                    # Per-epoch val_* best values (Phase 7 Stage 7.4
+                    # Round 4, 2026-04-20) — Round 1's test_* whitelist
+                    # was silently dead for every PyTorch TLOB/HMHP run
+                    # that never persisted test_metrics.json. Round 4
+                    # item #6 added that persistence; item #1 here
+                    # surfaces the per-epoch best values extracted by
+                    # TrainingRunner._capture_training_metrics so that
+                    # _find_prior_best_experiment can fall back to
+                    # best_val_ic when test_ic is absent (early-phase
+                    # runs, in-flight experiments). Max-better (5):
+                    "best_val_ic", "best_val_directional_accuracy",
+                    "best_val_r2", "best_val_pearson",
+                    "best_val_profitable_accuracy",
+                    # Min-better (3):
+                    "best_val_loss", "best_val_mae", "best_val_rmse",
+                    # Classification extra (1) — signal_rate emitted by
+                    # TLOB / opportunity strategies.
+                    "best_val_signal_rate",
                 )
             },
             "backtest_metrics": {
@@ -254,6 +358,30 @@ class ExperimentRecord:
             # `hft-ops ledger list --feature-set <name>` filtering. Empty dict
             # (not None) when unset, matches other Dict default conventions.
             "feature_set_ref": self.feature_set_ref or {},
+            # Phase 7 Stage 7.4 Round 4 (2026-04-20): surface gate
+            # outcome per stage for fast filtering ("show me all
+            # experiments where post_training_gate warned"). Project
+            # only the status + a truncated summary — the full report
+            # stays in the record body to keep index.json small.
+            # Summary cap matches the Round 1 one-line convention;
+            # a multi-paragraph summary would bloat index lookups.
+            # Phase 7 Stage 7.4 Round 5 (2026-04-20): ``status`` is
+            # now the canonical key per
+            # ``hft_contracts.gate_report.GateReportDict``. The
+            # validation stage adapter injects ``status`` (lowercased
+            # verdict) before writing, so the legacy coalesce
+            # ``.get("status") or .get("verdict")`` is no longer
+            # needed. Removing it prevents casing inconsistency
+            # (``"PASS"`` vs ``"pass"``) from leaking into
+            # ``ledger list --gate-status`` queries.
+            "gate_reports": {
+                stage: {
+                    "status": report.get("status", ""),
+                    "summary": str(report.get("summary", ""))[:256],
+                }
+                for stage, report in (self.gate_reports or {}).items()
+                if isinstance(report, dict)
+            },
         }
 
 
