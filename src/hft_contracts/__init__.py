@@ -315,6 +315,9 @@ __all__ = [
     "ExperimentRecord",
     "RecordType",
     "INDEX_SCHEMA_VERSION",
+    "FeatureImportance",
+    "FeatureImportanceArtifact",
+    "FEATURE_IMPORTANCE_SCHEMA_VERSION",
     "FeatureSet",
     "FeatureSetRef",
     "FeatureSetAppliesTo",
@@ -369,6 +372,11 @@ from hft_contracts.experiment_record import (
     ExperimentRecord,
     RecordType,
     INDEX_SCHEMA_VERSION,
+)
+from hft_contracts.feature_importance_artifact import (
+    FeatureImportance,
+    FeatureImportanceArtifact,
+    FEATURE_IMPORTANCE_SCHEMA_VERSION,
 )
 from hft_contracts.feature_sets import (
     FeatureSet,

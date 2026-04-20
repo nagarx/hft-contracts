@@ -64,7 +64,7 @@ from hft_contracts.provenance import Provenance
 #
 # See root ``CLAUDE.md`` §Change-Coordination Checklist row
 # "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
-INDEX_SCHEMA_VERSION: str = "1.2.0"
+INDEX_SCHEMA_VERSION: str = "1.3.0"
 # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): additive MINOR bump for the
 # extraction-cache observability fields (``cache_hit``, ``cache_key``,
 # ``cache_seconds_saved``) surfaced via ``ExperimentRecord.cache_info`` and
@@ -81,6 +81,19 @@ INDEX_SCHEMA_VERSION: str = "1.2.0"
 # Projected in ``index_entry()`` so ``hft-ops ledger list`` can filter by
 # failure type without loading full records. Back-compat: pre-Phase-8A.1
 # records default ``sweep_failure_info={}``; auto-rebuild on first load.
+#
+# 1.2.0 → 1.3.0 (Phase 8C-α Stage C.2, 2026-04-20): additive MINOR bump
+# for post-training feature-importance artifacts. New
+# ``ExperimentRecord.artifacts`` field (List[Dict]) carries references
+# to content-addressed artifact files (currently:
+# ``feature_importance_v1.json`` from the trainer's permutation-
+# importance callback; future: SHAP / IntegratedGradients). Each entry:
+# ``{kind, path, sha256, bytes, method}``. Empty list on pre-Phase-8C-α
+# records. ``index_entry()`` projects ``artifact_kinds`` — sorted set
+# of distinct ``kind`` values — for fast ``ledger list
+# --has-artifact feature_importance`` queries without loading full
+# record bodies. Schema for ``feature_importance`` kind is registered
+# in ``contracts/pipeline_contract.toml [artifacts.feature_importance_schema]``.
 
 
 class RecordType(str, Enum):
@@ -251,6 +264,35 @@ class ExperimentRecord:
     # record_type=sweep_failure so retries are not silently blocked.
     # Locked by ``test_scheduler_parallel.py::TestDedupSkipsSweepFailure``.
     sweep_failure_info: Dict[str, Any] = field(default_factory=dict)
+
+    # Phase 8C-α Stage C.2 (2026-04-20): post-training artifact references.
+    # Populated by hft-ops ledger routing (``_persist_post_stage_artifacts``)
+    # when stages produce content-addressable artifacts. Currently:
+    # ``feature_importance_v1.json`` from trainer's
+    # ``PermutationImportanceCallback`` (Phase 8C-α Stage C.1).
+    #
+    # Schema per entry (all Dict[str, Any] — flexible for future
+    # artifact kinds without schema bumps):
+    #   ``kind: str``      — "feature_importance" | future: "shap",
+    #     "integrated_gradients". The registry of valid kinds is
+    #     documented in ``contracts/pipeline_contract.toml``.
+    #   ``path: str``      — relative to pipeline_root; e.g.,
+    #     "hft-ops/ledger/feature_importance/2026_04/<sha256>.json"
+    #   ``sha256: str``    — content hash for integrity verification
+    #   ``bytes: int``     — file size
+    #   ``method: str``    — sub-classification of kind (e.g.,
+    #     "permutation" for feature_importance). Optional.
+    #
+    # Empty list on pre-Phase-8C-α records. The ``from_dict`` shim
+    # defaults to [] when the field is absent (legacy records).
+    # ``index_entry()`` projects ``artifact_kinds`` — sorted list of
+    # distinct kinds — for fast ``ledger list --has-artifact`` queries.
+    #
+    # Fingerprint-stability: ``artifacts[]`` is NOT part of
+    # ``compute_fingerprint``. Post-training artifacts are observations,
+    # not treatments (same treatment + different post-hoc analysis →
+    # same fingerprint).
+    artifacts: List[Dict[str, Any]] = field(default_factory=list)
 
     tags: List[str] = field(default_factory=list)
     hypothesis: str = ""
@@ -465,6 +507,16 @@ class ExperimentRecord:
             # for index queries. Schema documented on
             # ``ExperimentRecord.sweep_failure_info`` field.
             "sweep_failure_info": self.sweep_failure_info or {},
+            # Phase 8C-α Stage C.2 (2026-04-20): surface distinct artifact
+            # kinds for ``ledger list --has-artifact feature_importance``
+            # filtering. Sorted for deterministic projection (hft-rules §7
+            # — no dict/set-ordering in externally-visible output).
+            # Empty list on pre-Phase-8C-α records.
+            "artifact_kinds": sorted({
+                str(a.get("kind", ""))
+                for a in self.artifacts
+                if isinstance(a, dict) and a.get("kind")
+            }),
             # Phase 7 Stage 7.4 Round 4 (2026-04-20): surface gate
             # outcome per stage for fast filtering ("show me all
             # experiments where post_training_gate warned"). Project
