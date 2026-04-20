@@ -64,7 +64,7 @@ from hft_contracts.provenance import Provenance
 #
 # See root ``CLAUDE.md`` §Change-Coordination Checklist row
 # "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
-INDEX_SCHEMA_VERSION: str = "1.1.0"
+INDEX_SCHEMA_VERSION: str = "1.2.0"
 # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): additive MINOR bump for the
 # extraction-cache observability fields (``cache_hit``, ``cache_key``,
 # ``cache_seconds_saved``) surfaced via ``ExperimentRecord.cache_info`` and
@@ -72,6 +72,15 @@ INDEX_SCHEMA_VERSION: str = "1.1.0"
 # records default ``cache_info={}``; ``hft-ops ledger.py::_load_index``
 # auto-rebuilds on first post-bump load (loud WARN) to re-project legacy
 # records under the new whitelist.
+#
+# 1.1.0 → 1.2.0 (Phase 8A.1, 2026-04-20): additive MINOR bump for the
+# parallel-sweep failure taxonomy — ``sweep_failure_info`` dict field on
+# ``ExperimentRecord`` surfaces ``{error_kind, exit_code, stderr_tail,
+# attempt, transient}`` for grid-point failures under
+# ``record_type=sweep_failure``. Empty dict on all non-failure records.
+# Projected in ``index_entry()`` so ``hft-ops ledger list`` can filter by
+# failure type without loading full records. Back-compat: pre-Phase-8A.1
+# records default ``sweep_failure_info={}``; auto-rebuild on first load.
 
 
 class RecordType(str, Enum):
@@ -96,6 +105,14 @@ class RecordType(str, Enum):
       table / feature profiles. ``training_metrics`` holds the summary.
     - ``sweep_aggregate``: Aggregate record for a multi-run script (e.g.,
       e4_baselines.py that runs 5 models). Sub-results live in ``sub_records``.
+    - ``sweep_failure`` (Phase 8A.1, 2026-04-20): A grid-point that failed
+      under parallel sweep execution. Carries ``sweep_failure_info``
+      {error_kind, exit_code, stderr_tail, attempt, transient} for
+      diagnosis and retry decisions. Shares its ``fingerprint`` with the
+      would-be successful record for that treatment so retries match;
+      ``hft-ops/ledger/dedup.py::check_duplicate`` MUST filter this type
+      out so retries re-run instead of being silently skipped as
+      duplicates.
     """
 
     TRAINING = "training"
@@ -104,6 +121,7 @@ class RecordType(str, Enum):
     BACKTEST = "backtest"
     EVALUATION = "evaluation"
     SWEEP_AGGREGATE = "sweep_aggregate"
+    SWEEP_FAILURE = "sweep_failure"
 
 
 @dataclass
@@ -211,6 +229,28 @@ class ExperimentRecord:
     # (Invariant 4). Locked by
     # ``test_extraction_cache.py::TestFingerprintStabilityAcrossCache``.
     cache_info: Dict[str, Any] = field(default_factory=dict)
+
+    # Phase 8A.1 (2026-04-20): parallel-sweep failure taxonomy.
+    # Populated ONLY for ``record_type=sweep_failure`` records.
+    #
+    # Schema (all fields optional; empty dict for non-failure records):
+    #   ``error_kind: str``      — "oom" | "validation_error" |
+    #     "gpu_acquire_timeout" | "broken_process_pool" | "subprocess_nonzero" |
+    #     "assertion" | "unknown"
+    #   ``exit_code: int``       — subprocess exit code (137 = SIGKILL/OOM,
+    #     139 = SIGSEGV, etc.); -1 for non-subprocess failures
+    #   ``stderr_tail: str``     — last 4KB of stderr for diagnosis
+    #   ``attempt: int``         — retry attempt number (1 = first, 2+ = retry)
+    #   ``transient: bool``      — True if retryable (OOM, timeout); False
+    #     for fatal (AssertionError, config invalid)
+    #
+    # Fingerprint invariant: sweep_failure records share their fingerprint
+    # with the would-be successful record for the same treatment — so a
+    # retry that completes successfully matches the same fingerprint for
+    # downstream comparison. ``dedup.check_duplicate`` MUST filter out
+    # record_type=sweep_failure so retries are not silently blocked.
+    # Locked by ``test_scheduler_parallel.py::TestDedupSkipsSweepFailure``.
+    sweep_failure_info: Dict[str, Any] = field(default_factory=dict)
 
     tags: List[str] = field(default_factory=list)
     hypothesis: str = ""
@@ -419,6 +459,12 @@ class ExperimentRecord:
             # ``ledger list --cache-hit true`` has a stable shape. Full
             # schema documented on ``ExperimentRecord.cache_info`` field.
             "cache_info": self.cache_info or {},
+            # Phase 8A.1 (2026-04-20): surface parallel-sweep failure
+            # taxonomy for ``ledger list --failure-kind oom`` and similar
+            # filters. Empty dict on non-failure records — shape-stable
+            # for index queries. Schema documented on
+            # ``ExperimentRecord.sweep_failure_info`` field.
+            "sweep_failure_info": self.sweep_failure_info or {},
             # Phase 7 Stage 7.4 Round 4 (2026-04-20): surface gate
             # outcome per stage for fast filtering ("show me all
             # experiments where post_training_gate warned"). Project
