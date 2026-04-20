@@ -16,6 +16,53 @@ First public release on the GitHub remote
 in the private monorepo; the 9 pre-2.2.0 commits are preserved in
 `git log` on `main`.
 
+### Added (Phase 8C-α, 2026-04-20)
+
+- **`FeatureImportanceArtifact` contract + `FeatureImportance` per-feature
+  record** at `hft_contracts.feature_importance_artifact` (Stage C.2).
+  Frozen dataclasses with `content_hash()` (via `canonical_hash` SSoT)
+  + `save()` (via `atomic_io` SSoT). Produced by the trainer's
+  `PermutationImportanceCallback` (Stage C.1), routed into
+  `hft-ops/ledger/feature_importance/{yyyy_mm}/<sha256>.json` by the
+  ledger hook (Stage C.3), consumed by the evaluator feedback-merge
+  step (Stage C.5, planned).
+- **`ExperimentRecord.artifacts: List[Dict]` field** — carries references
+  to content-addressed post-training artifacts. Schema per entry:
+  `{kind, path, sha256, bytes, method?}`. Not part of `compute_fingerprint`
+  (post-training artifacts are observations, not treatments).
+- **`INDEX_SCHEMA_VERSION` → 1.3.0** (MINOR additive): adds
+  `artifact_kinds: sorted(List[str])` projection to `index_entry()`
+  for fast `ledger list --has-artifact feature_importance` filtering.
+- **`compute_stability(mean, std)`** helper in the same module —
+  CV-variant stability metric clipped to [0, 1].
+- **`FEATURE_IMPORTANCE_SCHEMA_VERSION = "2"`** after post-audit rename
+  (see below). `from_dict` transparently migrates legacy v1 artifacts
+  that used `block_size_days` into the v2 `block_length_samples` field.
+
+### Changed (Phase 8C-α post-audit hardening, 2026-04-20)
+
+- **`block_size_days` → `block_length_samples`** on
+  `FeatureImportanceArtifact` (schema v1 → v2) and on the
+  contract-plane `[artifacts.feature_importance_schema]` block. The
+  old name silently implied day-semantics that the code never delivered
+  (Politis-Romano 1994 autocorrelation preservation requires
+  block_length > autocorrelation lag; default=1 is element-wise
+  permutation). No v1 artifacts exist in the wild (C.2 shipped hours
+  before the rename) so the migration is zero-cost; `from_dict` accepts
+  both keys for future-proofing.
+- **`from_dict` forward-compat filter** — per-feature dict entries are
+  now filtered to known `FeatureImportance` fields, so a v3+ additive
+  field does not crash a v2 consumer reading a newer artifact.
+- **`index_entry()::artifact_kinds` rejects non-string kinds** —
+  previously coerced via `str(...)` leaking `"123"` / `"None"` into
+  the ledger index. Now explicitly `isinstance(kind, str)` gated.
+- **`compute_stability(0, 0) → 0.0`** (consistent with near-zero-mean
+  clamp) + exported in `__all__`.
+- **6 new regression tests** locking the post-audit fixes in
+  `TestPostAuditFixes`: forward-compat unknown kwargs, non-string
+  artifact kind rejection, public-API membership, degenerate stability,
+  v1→v2 migration, missing-key fail-loud.
+
 ### Added
 
 - **Package version** — `hft_contracts.__version__ = "2.2.0"` attribute

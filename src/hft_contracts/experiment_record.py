@@ -513,9 +513,11 @@ class ExperimentRecord:
             # — no dict/set-ordering in externally-visible output).
             # Empty list on pre-Phase-8C-α records.
             "artifact_kinds": sorted({
-                str(a.get("kind", ""))
+                a.get("kind")
                 for a in self.artifacts
-                if isinstance(a, dict) and a.get("kind")
+                if isinstance(a, dict)
+                and isinstance(a.get("kind"), str)
+                and a.get("kind")
             }),
             # Phase 7 Stage 7.4 Round 4 (2026-04-20): surface gate
             # outcome per stage for fast filtering ("show me all

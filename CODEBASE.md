@@ -1,6 +1,6 @@
 # hft-contracts — Codebase Reference
 
-> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 300 authoring / 295 + 5 skip fresh-clone | **Last Updated**: 2026-04-20 (REV 2 public-push + follow-up hardening — `atomic_io` rename, `CONTENT_HASH_RE` public, unified `ContractError`, `__version__`, `py.typed` marker, `__getattr__`-based deprecation shims)
+> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 333 authoring / ~328 + 5 skip fresh-clone | **Last Updated**: 2026-04-20 (Phase 8C-α Stage C.2 + 2-round post-audit — `FeatureImportanceArtifact` v2 schema + `ExperimentRecord.artifacts[]` + `INDEX_SCHEMA_VERSION=1.3.0` + `block_length_samples` semantic rename + `from_dict` migration shim + v1/v2 content-hash divergence lock + `compute_stability` in `__all__` + (0,0)→0.0 edge case)
 
 ## Role in the Pipeline
 

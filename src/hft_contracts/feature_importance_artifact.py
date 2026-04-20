@@ -44,10 +44,21 @@ __all__ = [
     "FEATURE_IMPORTANCE_SCHEMA_VERSION",
     "FeatureImportance",
     "FeatureImportanceArtifact",
+    "compute_stability",
 ]
 
 
-FEATURE_IMPORTANCE_SCHEMA_VERSION: str = "1"
+FEATURE_IMPORTANCE_SCHEMA_VERSION: str = "2"
+# v2 (2026-04-20, Agent-D H1 rename): renamed ``block_size_days`` →
+# ``block_length_samples`` on the wire format. The old name silently
+# implied day-semantics that the producer never delivered
+# (Politis-Romano 1994 block permutation preserves autocorrelation only
+# when block_length > autocorrelation lag; block_length=1 is element-wise
+# permutation). Migration: ``from_dict`` accepts both keys (legacy v1
+# artifacts load transparently with the old key mapped into the new
+# field). Legacy schema-version "1" artifacts ARE accepted since v2
+# differs only in key name + field docstring; computed-value parity is
+# preserved across the rename.
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +138,14 @@ class FeatureImportanceArtifact:
         ``"val_ic"``, ``"val_macro_f1"``, ``"test_directional_accuracy"``).
         Must match a key in ``training_metrics`` for the same experiment.
       baseline_value: Observed metric on un-permuted eval set.
-      block_size_days: Permutation block length in day units. Preserves
-        intraday autocorrelation per Politis & Romano (1994). Default 1.
+      block_length_samples: Permutation block length in SAMPLE units
+        (NOT day units — post-audit 2026-04-20 rename for semantic
+        accuracy). Preserves intraday autocorrelation per
+        Politis & Romano (1994) WHEN caller sets it to match the
+        autocorrelation scale. Default 1 = element-wise permutation
+        (no autocorrelation preservation); operators opting in to
+        day-preserving blocks pass
+        ``block_length_samples = round(n_eval / n_days_in_eval)``.
       n_permutations: Total permutation replicates per seed per feature.
         Default 500 per plan.
       n_seeds: Number of random seeds the artifact aggregates over.
@@ -157,7 +174,7 @@ class FeatureImportanceArtifact:
     method: str
     baseline_metric: str
     baseline_value: float
-    block_size_days: int
+    block_length_samples: int
     n_permutations: int
     n_seeds: int
     seed: int
@@ -185,7 +202,7 @@ class FeatureImportanceArtifact:
             "method": self.method,
             "baseline_metric": self.baseline_metric,
             "baseline_value": self.baseline_value,
-            "block_size_days": self.block_size_days,
+            "block_length_samples": self.block_length_samples,
             "n_permutations": self.n_permutations,
             "n_seeds": self.n_seeds,
             "seed": self.seed,
@@ -203,18 +220,38 @@ class FeatureImportanceArtifact:
     def from_dict(cls, data: Dict[str, Any]) -> "FeatureImportanceArtifact":
         """Reconstruct from a dict (e.g., loaded from JSON).
 
-        Defensive: MINOR-bump fields with ``None`` default gracefully
-        absent in legacy artifacts.
+        Defensive:
+          - MINOR-bump fields with ``None`` default gracefully absent
+            in legacy artifacts.
+          - ``FeatureImportance`` entries filter unknown kwargs (Agent-B
+            H1 fix) so a v3 per-feature field addition doesn't crash a
+            v2 consumer reading a newer artifact.
+          - Schema v1 → v2 migration: ``block_size_days`` legacy key
+            is accepted and routed into ``block_length_samples``
+            (post-audit 2026-04-20 rename).
         """
+        feature_fields = {f.name for f in dataclasses.fields(FeatureImportance)}
         features = tuple(
-            FeatureImportance(**f) for f in data.get("features", [])
+            FeatureImportance(**{k: v for k, v in f.items() if k in feature_fields})
+            for f in data.get("features", [])
         )
+        # v1 → v2 migration: accept legacy ``block_size_days`` key.
+        if "block_length_samples" in data:
+            block_length = int(data["block_length_samples"])
+        elif "block_size_days" in data:
+            block_length = int(data["block_size_days"])
+        else:
+            raise KeyError(
+                "FeatureImportanceArtifact: neither "
+                "'block_length_samples' (v2+) nor legacy 'block_size_days' "
+                "(v1) found in artifact dict"
+            )
         return cls(
             schema_version=data["schema_version"],
             method=data["method"],
             baseline_metric=data["baseline_metric"],
             baseline_value=float(data["baseline_value"]),
-            block_size_days=int(data["block_size_days"]),
+            block_length_samples=block_length,
             n_permutations=int(data["n_permutations"]),
             n_seeds=int(data["n_seeds"]),
             seed=int(data["seed"]),
@@ -307,6 +344,13 @@ def compute_stability(mean: float, std: float, eps: float = 1e-12) -> float:
     if not math.isfinite(mean) or not math.isfinite(std):
         return 0.0
     if std < 0:
+        return 0.0
+    # Post-audit (2026-04-20 Agent-B M3): degenerate (mean=0, std=0)
+    # is ill-defined by the CV formula (0/0). Interpret as "zero-variance
+    # zero-effect" feature — the estimate IS numerically stable, but the
+    # feature has no predictive role, so feedback-merge should NOT use
+    # it for tier flips. Return 0.0 to mirror the near-zero-mean clamp.
+    if mean == 0.0 and std == 0.0:
         return 0.0
     denom = max(abs(mean), eps)
     return float(max(0.0, min(1.0, 1.0 - std / denom)))

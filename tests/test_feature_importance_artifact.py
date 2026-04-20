@@ -41,7 +41,7 @@ def _make_artifact(**overrides) -> FeatureImportanceArtifact:
         method="permutation",
         baseline_metric="val_ic",
         baseline_value=0.245,
-        block_size_days=1,
+        block_length_samples=1,
         n_permutations=500,
         n_seeds=5,
         seed=42,
@@ -237,5 +237,169 @@ class TestIndexSchemaVersion1_3_0:
             f"``artifacts`` field). Got {INDEX_SCHEMA_VERSION!r}."
         )
 
-    def test_feature_importance_schema_version_is_1(self):
-        assert FEATURE_IMPORTANCE_SCHEMA_VERSION == "1"
+    def test_feature_importance_schema_version_is_2(self):
+        """Phase 8C-α post-audit bump to v2: Agent-D H1 rename of
+        ``block_size_days`` → ``block_length_samples``. v1 artifacts
+        load transparently via ``from_dict`` migration."""
+        assert FEATURE_IMPORTANCE_SCHEMA_VERSION == "2"
+
+
+class TestPostAuditFixes:
+    """Phase 8C-α post-audit regression tests locking the 5-agent
+    audit hardening. Each test MUST fail against pre-fix code.
+    """
+
+    # ---- Agent-B H1: from_dict filters unknown per-feature kwargs ----
+
+    def test_from_dict_filters_unknown_feature_kwargs(self):
+        """Future v3+ per-feature fields must not crash v2 consumers."""
+        data = _make_artifact().to_dict()
+        data["features"][0]["future_field_not_yet_defined"] = 3.14
+        reloaded = FeatureImportanceArtifact.from_dict(data)
+        assert reloaded.features[0].feature_name == "depth_norm_ofi"
+
+    # ---- Agent-B H2: artifact_kinds rejects non-string kinds ----
+
+    def test_artifact_kinds_rejects_non_string_kind(self):
+        """Non-string ``kind`` must not leak into the projection."""
+        from hft_contracts.experiment_record import ExperimentRecord
+        from hft_contracts.provenance import GitInfo, Provenance
+        rec = ExperimentRecord(
+            experiment_id="e",
+            name="e",
+            fingerprint="f" * 64,
+            contract_version="2.2",
+            status="completed",
+            created_at="2026-04-20T00:00:00+00:00",
+            artifacts=[
+                {"kind": "feature_importance", "path": "a"},
+                {"kind": 42, "path": "b"},          # int — reject
+                {"kind": None, "path": "c"},        # None — reject
+                {"kind": ["list"], "path": "d"},    # list — reject
+            ],
+            provenance=Provenance(
+                git=GitInfo(commit_hash="x", branch="main", dirty=False),
+                contract_version="2.2",
+            ),
+        )
+        assert rec.index_entry()["artifact_kinds"] == ["feature_importance"]
+
+    # ---- Agent-B M2: compute_stability in __all__ ----
+
+    def test_compute_stability_in_public_api(self):
+        """Avoid the `_compute_stability` trap — the helper is
+        consumer-stable, so it goes in ``__all__``."""
+        from hft_contracts import feature_importance_artifact as mod
+        assert "compute_stability" in mod.__all__
+
+    # ---- Agent-B M3: degenerate (mean=0, std=0) → 0 stability ----
+
+    def test_compute_stability_degenerate_mean_and_std_zero(self):
+        """(0, 0) is ill-defined by CV formula; interpret as 0."""
+        from hft_contracts.feature_importance_artifact import compute_stability
+        assert compute_stability(0.0, 0.0) == 0.0
+
+    # ---- Agent-D H1 + contract v1→v2 migration ----
+
+    def test_from_dict_v1_legacy_block_size_days_migrates(self):
+        """Legacy v1 artifacts written with ``block_size_days`` load
+        transparently into the v2 ``block_length_samples`` field."""
+        v1 = {
+            "schema_version": "1",
+            "method": "permutation",
+            "baseline_metric": "val_ic",
+            "baseline_value": 0.2,
+            "block_size_days": 5,  # v1 key
+            "n_permutations": 100,
+            "n_seeds": 3,
+            "seed": 42,
+            "eval_split": "test",
+            "features": [],
+            "feature_set_ref": None,
+            "experiment_id": "exp_x",
+            "fingerprint": "f" * 64,
+            "model_type": "tlob",
+            "timestamp_utc": "2026-04-20T12:00:00+00:00",
+            "method_caveats": [],
+        }
+        reloaded = FeatureImportanceArtifact.from_dict(v1)
+        assert reloaded.block_length_samples == 5, (
+            "v1 → v2 migration must route ``block_size_days`` into "
+            "``block_length_samples`` field"
+        )
+
+    def test_from_dict_missing_block_length_raises(self):
+        """Neither v1 nor v2 key present → explicit KeyError (fail-loud
+        per hft-rules §8)."""
+        bad = _make_artifact().to_dict()
+        bad.pop("block_length_samples")
+        with pytest.raises(KeyError, match="block_length_samples"):
+            FeatureImportanceArtifact.from_dict(bad)
+
+    # ---- Round-2 post-audit (2026-04-20): both-key-present precedence ----
+
+    def test_from_dict_both_keys_present_v2_wins(self):
+        """Round-2 (contracts-review H1): when a corrupted/merged dict
+        contains BOTH ``block_length_samples`` AND legacy
+        ``block_size_days``, v2 wins. The current from_dict code
+        branches on ``if "block_length_samples" in data`` first → v2
+        is silently preferred. Lock this precedence with a test so
+        future refactors don't silently flip it (which would change
+        the hash of all migrated v1 artifacts).
+        """
+        data = _make_artifact().to_dict()
+        assert data["block_length_samples"] == 1
+        data["block_size_days"] = 999  # inject contradictory legacy
+        reloaded = FeatureImportanceArtifact.from_dict(data)
+        assert reloaded.block_length_samples == 1, (
+            "When both keys present, v2 ``block_length_samples`` must win. "
+            f"Got block_length_samples={reloaded.block_length_samples}."
+        )
+
+    def test_content_hash_differs_across_v1_and_v2_migration(self):
+        """Round-2 (contracts-review H2): v1 artifact
+        {schema_version:'1', block_size_days:1} and v2 artifact
+        {schema_version:'2', block_length_samples:1} — after migrating
+        both through from_dict, the resulting dataclass content_hashes
+        MUST differ (because schema_version differs: '1' vs '2').
+
+        This is the intended behavior (different schema version =
+        different semantics = different content-addressed bucket), but
+        was unlocked by tests. A future refactor that normalizes
+        schema_version to '2' on migration would silently dedup two
+        logically-distinct artifacts. Lock the current behavior.
+        """
+        v1_data = {
+            "schema_version": "1",
+            "method": "permutation",
+            "baseline_metric": "val_ic",
+            "baseline_value": 0.2,
+            "block_size_days": 1,          # v1 legacy key
+            "n_permutations": 100,
+            "n_seeds": 3,
+            "seed": 42,
+            "eval_split": "test",
+            "features": [],
+            "feature_set_ref": None,
+            "experiment_id": "exp_x",
+            "fingerprint": "f" * 64,
+            "model_type": "tlob",
+            "timestamp_utc": "2026-04-20T12:00:00+00:00",
+            "method_caveats": [],
+        }
+        v2_data = dict(v1_data)
+        v2_data["schema_version"] = "2"
+        v2_data.pop("block_size_days")
+        v2_data["block_length_samples"] = 1
+
+        art_v1 = FeatureImportanceArtifact.from_dict(v1_data)
+        art_v2 = FeatureImportanceArtifact.from_dict(v2_data)
+
+        assert art_v1.block_length_samples == art_v2.block_length_samples == 1
+        # Hashes differ because schema_version field differs.
+        assert art_v1.content_hash() != art_v2.content_hash(), (
+            "v1-migrated and v2-native artifacts with same semantic "
+            "data MUST content-hash differently (schema_version differs). "
+            "If these match, a silent schema_version normalization was "
+            "added — update this test to document the new precedence."
+        )
