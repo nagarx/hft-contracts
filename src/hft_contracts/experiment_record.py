@@ -39,6 +39,34 @@ from hft_contracts.atomic_io import atomic_write_json
 from hft_contracts.provenance import Provenance
 
 
+# -----------------------------------------------------------------------------
+# Phase 8B — Index-projection schema version (auto-invalidation substrate).
+# -----------------------------------------------------------------------------
+#
+# ``hft-ops/ledger/index.json`` is a DERIVED projection produced by
+# ``ExperimentRecord.index_entry()``; its contents depend on the whitelist of
+# fields this module projects. When a developer extends the whitelist (new
+# metric), old on-disk ``index.json`` entries silently omit the new key until
+# someone manually runs ``hft-ops ledger rebuild-index``. Phase 8B introduces
+# this constant + a companion envelope format on ``index.json`` so that a
+# ``MAJOR.MINOR`` mismatch between the on-disk version and this code-side
+# version is detected at load-time and triggers an automatic rebuild (loudly
+# logged; ``--strict-index`` turns it into a hard error in CI).
+#
+# Bumping policy (mirrors ``contracts/pipeline_contract.toml [[changelog]]``
+# discipline and matches ``packaging.version.Version`` MAJOR.MINOR.PATCH):
+#   - MAJOR: a whitelist key is RENAMED or REMOVED. Bundle with explicit
+#     migration notes in CHANGELOG; coordinate with CLI consumers.
+#   - MINOR: a whitelist key is ADDED (additive; back-compat preserved via
+#     re-projection on load). Default increment when extending ``index_entry()``.
+#   - PATCH: documentation-only change inside ``index_entry()``; does NOT
+#     trigger a rebuild (comparison logic is MAJOR.MINOR only).
+#
+# See root ``CLAUDE.md`` §Change-Coordination Checklist row
+# "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
+INDEX_SCHEMA_VERSION: str = "1.0.0"
+
+
 class RecordType(str, Enum):
     """Type of experiment a ledger record represents.
 
@@ -388,4 +416,5 @@ class ExperimentRecord:
 __all__ = [
     "ExperimentRecord",
     "RecordType",
+    "INDEX_SCHEMA_VERSION",
 ]

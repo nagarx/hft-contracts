@@ -14,8 +14,241 @@ from pathlib import Path
 
 import pytest
 
-from hft_contracts.experiment_record import ExperimentRecord, RecordType
+from hft_contracts.experiment_record import (
+    ExperimentRecord,
+    INDEX_SCHEMA_VERSION,
+    RecordType,
+)
 from hft_contracts.provenance import GitInfo, Provenance
+
+
+class TestPackageSurface:
+    """Phase 8B: lock the `INDEX_SCHEMA_VERSION` constant's presence, type,
+    and SemVer format. The constant drives the auto-invalidation substrate
+    for `hft-ops/ledger/index.json` — any future typo that drops the constant
+    or changes its format silently would re-introduce the silent-omission
+    class this phase exists to eliminate.
+    """
+
+    def test_index_schema_version_present_and_string(self):
+        assert isinstance(INDEX_SCHEMA_VERSION, str), (
+            f"INDEX_SCHEMA_VERSION must be str; got {type(INDEX_SCHEMA_VERSION).__name__}"
+        )
+        assert INDEX_SCHEMA_VERSION, "INDEX_SCHEMA_VERSION must not be empty"
+
+    def test_index_schema_version_is_semver_major_minor_patch(self):
+        # Format: MAJOR.MINOR.PATCH — three non-negative integers separated
+        # by dots. Phase 8B Step B.2 (next) will parse via
+        # packaging.version.Version for MAJOR.MINOR comparison. This test
+        # is the stdlib-regex fallback guarding the format invariant.
+        import re
+
+        pattern = r"^\d+\.\d+\.\d+$"
+        assert re.match(pattern, INDEX_SCHEMA_VERSION), (
+            f"INDEX_SCHEMA_VERSION must match MAJOR.MINOR.PATCH regex {pattern!r}; "
+            f"got {INDEX_SCHEMA_VERSION!r}. Extending index_entry() whitelist? "
+            f"Bump MINOR. Renaming/removing whitelist keys? Bump MAJOR + migration note."
+        )
+
+    def test_index_schema_version_reexported_at_package_level(self):
+        # The constant is re-exported from `hft_contracts` at package level
+        # so downstream consumers (hft-ops ledger envelope writer) can import
+        # it without drilling into the submodule.
+        import hft_contracts
+
+        assert hasattr(hft_contracts, "INDEX_SCHEMA_VERSION"), (
+            "INDEX_SCHEMA_VERSION must be re-exported at the hft_contracts "
+            "package level so `from hft_contracts import INDEX_SCHEMA_VERSION` works"
+        )
+        assert hft_contracts.INDEX_SCHEMA_VERSION == INDEX_SCHEMA_VERSION, (
+            "Package-level re-export must be the same string as the submodule export"
+        )
+        assert "INDEX_SCHEMA_VERSION" in hft_contracts.__all__, (
+            "INDEX_SCHEMA_VERSION must appear in hft_contracts.__all__"
+        )
+
+
+class TestIndexEntryCompleteness:
+    """Phase 8B Step B.4: whitelist-parity golden. Every key projected by
+    ``ExperimentRecord.index_entry()`` must map to a raw-field accessor on
+    the source record (not a hand-coded literal or a ``.get(..., default)``
+    outside the projection loop).
+
+    This catches the R4-style silent-omission bug pattern where a developer
+    adds ``self.training_metrics.get("test_NEW", 0.0)`` outside the
+    comprehension loop: the key lands in the projected dict ("test_NEW")
+    but it has no raw-field source, so it's always projected as ``0.0``
+    for EVERY record, masking the intended extraction of the real value
+    from raw ``training_metrics``.
+
+    The check: populate a fixture record with ALL fields set to distinctive
+    non-default values. Project via ``index_entry()``. For every key in
+    the projection that has a scalar value (not a list/dict of derived
+    stats), verify the value matches the raw-record source — i.e. the
+    value came FROM the record, not from a literal default.
+    """
+
+    def test_every_projected_scalar_key_has_raw_source(self):
+        # Populate a fixture record with distinctive, non-default values so
+        # we can detect "the projection returns a default instead of the
+        # real raw-field value" — the silent-omission pattern.
+        fixture = ExperimentRecord(
+            experiment_id="FIXTURE_20260420T000000_fixture1",
+            name="fixture_record",
+            fingerprint="f" * 64,
+            contract_version="2.2",
+            tags=["fixture", "b4-test"],
+            status="completed",
+            created_at="2026-04-20T00:00:00+00:00",
+            training_metrics={
+                # Classification taxonomy (R4 Round 5 fix):
+                "test_accuracy": 0.5555,
+                "test_macro_f1": 0.4444,
+                "test_weighted_f1": 0.3333,
+                "test_macro_precision": 0.2222,
+                "test_macro_recall": 0.1111,
+                # Regression taxonomy:
+                "test_ic": 0.3333,
+                "test_directional_accuracy": 0.6666,
+                "test_r2": 0.1111,
+                "test_mae": 0.0555,
+                "test_rmse": 0.0666,
+                "test_pearson": 0.3555,
+                "test_profitable_accuracy": 0.6555,
+                # Per-epoch best_val_*:
+                "best_val_ic": 0.3777,
+                "best_val_directional_accuracy": 0.6777,
+                "best_val_r2": 0.1777,
+                # Classification best_val_*:
+                "best_val_accuracy": 0.7777,
+                "best_val_macro_f1": 0.6888,
+                # Loss:
+                "best_val_loss": 0.8888,
+                "best_val_mae": 0.0777,
+                "best_val_rmse": 0.0888,
+            },
+        )
+
+        projection = fixture.index_entry()
+        assert isinstance(projection, dict), (
+            "index_entry() must return a dict"
+        )
+
+        # Every scalar key projected from training_metrics MUST be sourced
+        # from the raw training_metrics dict (not a literal default).
+        projected_metrics = projection.get("training_metrics", {})
+        raw_metrics = fixture.training_metrics
+
+        for key, projected_value in projected_metrics.items():
+            # The raw-source invariant: projection MUST match raw-field
+            # value. If it doesn't, either the key was hand-literaled into
+            # the projection (a bug), or the raw-source has a typo.
+            assert key in raw_metrics, (
+                f"projected key {key!r} not found in raw training_metrics — "
+                f"index_entry() is either hand-literaling a default or the "
+                f"whitelist has a typo. Either fix the projection OR add "
+                f"{key!r} to the fixture to assert the data-flow is correct."
+            )
+            assert projected_value == raw_metrics[key], (
+                f"projected training_metrics[{key!r}]={projected_value} "
+                f"differs from raw training_metrics[{key!r}]={raw_metrics[key]}. "
+                f"index_entry() appears to be returning a default instead "
+                f"of the raw value — this is the silent-omission class that "
+                f"Phase 8B INDEX_SCHEMA_VERSION auto-invalidation guards."
+            )
+
+    def test_index_entry_top_level_key_set_frozen(self):
+        """Phase 8B Step B.5 (hardcoded-golden variant): the TOP-LEVEL
+        key set of ``index_entry()`` projection is frozen. Any addition
+        or removal forces this test to be updated AND the developer
+        must bump ``INDEX_SCHEMA_VERSION`` per the Change-Coordination
+        Checklist discipline.
+
+        This is a deliberate friction gate: changing the projection
+        surface should NEVER happen silently. The assertion here makes
+        it structurally impossible to extend the whitelist without
+        also updating a test that documents the schema at the current
+        version.
+
+        Future enhancement: replace the hardcoded set with a JSON
+        golden file loaded via ``pytest --regen`` (plan Step B.5's
+        fixture-file variant). For v1.0.0 with only one consumer
+        (hft-ops ledger) the hardcoded set is sufficient; a fixture
+        file becomes valuable when a second consumer of the projection
+        surface lands in Phase 8C.
+        """
+        fixture = ExperimentRecord(
+            experiment_id="GOLDEN_20260420T000000_golden01",
+            name="golden_record",
+            fingerprint="g" * 64,
+            contract_version="2.2",
+            status="completed",
+            created_at="2026-04-20T00:00:00+00:00",
+        )
+        projection = fixture.index_entry()
+        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.0.0":
+        expected_top_level = {
+            "experiment_id",
+            "name",
+            "fingerprint",
+            "contract_version",
+            "tags",
+            "training_metrics",
+            "backtest_metrics",
+            "status",
+            "stages_completed",
+            "duration_seconds",
+            "model_type",
+            "labeling_strategy",
+            "hypothesis",
+            "created_at",
+            "retroactive",
+            "sweep_id",
+            "axis_values",
+            "record_type",
+            "parent_experiment_id",
+            "feature_set_ref",
+            "gate_reports",
+        }
+        actual_top_level = set(projection.keys())
+
+        added = actual_top_level - expected_top_level
+        removed = expected_top_level - actual_top_level
+
+        assert not added and not removed, (
+            f"Phase 8B: index_entry() projection key-set drifted from "
+            f"INDEX_SCHEMA_VERSION=1.0.0 golden. Added: {sorted(added)}; "
+            f"Removed: {sorted(removed)}. If this change is intentional, "
+            f"(a) bump INDEX_SCHEMA_VERSION MINOR (or MAJOR for removals), "
+            f"(b) update this test's expected_top_level set, "
+            f"(c) update root CLAUDE.md Change-Coordination Checklist entry "
+            f"for index_entry() whitelist extensions. The auto-invalidation "
+            f"substrate in hft-ops/ledger/ledger.py::_load_index will then "
+            f"re-project all existing records on next load."
+        )
+
+    def test_top_level_scalar_keys_traceable(self):
+        """Beyond training_metrics, top-level scalar keys projected by
+        index_entry() (experiment_id, name, fingerprint, status, etc.) must
+        also trace back to raw-field values.
+        """
+        fixture = ExperimentRecord(
+            experiment_id="TRACE_20260420T000000_trace123",
+            name="trace_record",
+            fingerprint="e" * 64,
+            contract_version="2.2",
+            tags=["trace"],
+            status="completed",
+            created_at="2026-04-20T00:00:00+00:00",
+        )
+        projection = fixture.index_entry()
+        # Spot-check the canonical top-level keys — these are the identity
+        # fields every consumer (dedup, query, comparison) relies on.
+        assert projection["experiment_id"] == fixture.experiment_id
+        assert projection["name"] == fixture.name
+        assert projection["fingerprint"] == fixture.fingerprint
+        assert projection["status"] == fixture.status
+        assert projection["created_at"] == fixture.created_at
 
 
 class TestRecordType:

@@ -314,6 +314,7 @@ __all__ = [
     "CONTENT_HASH_RE",
     "ExperimentRecord",
     "RecordType",
+    "INDEX_SCHEMA_VERSION",
     "FeatureSet",
     "FeatureSetRef",
     "FeatureSetAppliesTo",
@@ -364,7 +365,11 @@ from hft_contracts.provenance import (
     PROVENANCE_SCHEMA_VERSION,
 )
 from hft_contracts.signal_manifest import SignalManifest, CONTENT_HASH_RE
-from hft_contracts.experiment_record import ExperimentRecord, RecordType
+from hft_contracts.experiment_record import (
+    ExperimentRecord,
+    RecordType,
+    INDEX_SCHEMA_VERSION,
+)
 from hft_contracts.feature_sets import (
     FeatureSet,
     FeatureSetRef,
