@@ -64,7 +64,14 @@ from hft_contracts.provenance import Provenance
 #
 # See root ``CLAUDE.md`` §Change-Coordination Checklist row
 # "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
-INDEX_SCHEMA_VERSION: str = "1.0.0"
+INDEX_SCHEMA_VERSION: str = "1.1.0"
+# 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): additive MINOR bump for the
+# extraction-cache observability fields (``cache_hit``, ``cache_key``,
+# ``cache_seconds_saved``) surfaced via ``ExperimentRecord.cache_info`` and
+# projected into ``index_entry()``. Back-compat preserved: pre-Phase-8A.0
+# records default ``cache_info={}``; ``hft-ops ledger.py::_load_index``
+# auto-rebuilds on first post-bump load (loud WARN) to re-project legacy
+# records under the new whitelist.
 
 
 class RecordType(str, Enum):
@@ -183,6 +190,27 @@ class ExperimentRecord:
     # *observation*, not a *treatment*. Test coverage locked in
     # ``hft-contracts/tests/test_experiment_record.py::TestGateReportsFingerprintStability``.
     gate_reports: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # Phase 8A.0 (2026-04-20): extraction-cache observability fields.
+    # Harvested by ``hft-ops cli.py::_record_experiment`` from the
+    # extraction stage's ``captured_metrics`` — flattened into record-
+    # level ``cache_info`` for ledger-query ergonomics (vs reaching into
+    # ``stages.extraction.captured_metrics.cache_hit``).
+    #
+    # Schema (all fields optional — empty dict for pre-Phase-8A.0 records):
+    #   ``cache_hit: bool``       — True iff cache resolved + validated;
+    #   ``cache_key: str``        — 64-char SHA-256 of the 9 inputs;
+    #   ``cache_seconds_saved: float`` — 0.0 on miss; >0 on hit
+    #     (``extractor_duration_seconds`` from CACHE_MANIFEST.json);
+    #   ``cache_linked_files: int`` (hits only);
+    #   ``cache_link_type: str``  — one of clonefile/reflink/
+    #     hardlink_readonly/symlink_relative (hits only).
+    #
+    # Fingerprint-stability: NONE of these enter the ExperimentRecord
+    # fingerprint. Cache outcome is observation, not treatment
+    # (Invariant 4). Locked by
+    # ``test_extraction_cache.py::TestFingerprintStabilityAcrossCache``.
+    cache_info: Dict[str, Any] = field(default_factory=dict)
 
     tags: List[str] = field(default_factory=list)
     hypothesis: str = ""
@@ -386,6 +414,11 @@ class ExperimentRecord:
             # `hft-ops ledger list --feature-set <name>` filtering. Empty dict
             # (not None) when unset, matches other Dict default conventions.
             "feature_set_ref": self.feature_set_ref or {},
+            # Phase 8A.0 (2026-04-20): extraction-cache observability.
+            # Empty dict (not None) for pre-Phase-8A.0 records so
+            # ``ledger list --cache-hit true`` has a stable shape. Full
+            # schema documented on ``ExperimentRecord.cache_info`` field.
+            "cache_info": self.cache_info or {},
             # Phase 7 Stage 7.4 Round 4 (2026-04-20): surface gate
             # outcome per stage for fast filtering ("show me all
             # experiments where post_training_gate warned"). Project

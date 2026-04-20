@@ -186,7 +186,8 @@ class TestIndexEntryCompleteness:
             created_at="2026-04-20T00:00:00+00:00",
         )
         projection = fixture.index_entry()
-        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.0.0":
+        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.1.0":
+        # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): +cache_info (additive).
         expected_top_level = {
             "experiment_id",
             "name",
@@ -209,6 +210,7 @@ class TestIndexEntryCompleteness:
             "parent_experiment_id",
             "feature_set_ref",
             "gate_reports",
+            "cache_info",  # Phase 8A.0 — extraction-cache observability
         }
         actual_top_level = set(projection.keys())
 
@@ -216,8 +218,8 @@ class TestIndexEntryCompleteness:
         removed = expected_top_level - actual_top_level
 
         assert not added and not removed, (
-            f"Phase 8B: index_entry() projection key-set drifted from "
-            f"INDEX_SCHEMA_VERSION=1.0.0 golden. Added: {sorted(added)}; "
+            f"Phase 8B/8A.0: index_entry() projection key-set drifted from "
+            f"INDEX_SCHEMA_VERSION=1.1.0 golden. Added: {sorted(added)}; "
             f"Removed: {sorted(removed)}. If this change is intentional, "
             f"(a) bump INDEX_SCHEMA_VERSION MINOR (or MAJOR for removals), "
             f"(b) update this test's expected_top_level set, "
