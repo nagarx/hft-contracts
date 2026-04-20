@@ -1,6 +1,6 @@
 # hft-contracts — Codebase Reference
 
-> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 333 authoring / ~328 + 5 skip fresh-clone | **Last Updated**: 2026-04-20 (Phase 8C-α Stage C.2 + 2-round post-audit — `FeatureImportanceArtifact` v2 schema + `ExperimentRecord.artifacts[]` + `INDEX_SCHEMA_VERSION=1.3.0` + `block_length_samples` semantic rename + `from_dict` migration shim + v1/v2 content-hash divergence lock + `compute_stability` in `__all__` + (0,0)→0.0 edge case)
+> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 335 authoring / ~330 + 5 skip fresh-clone | **Last Updated**: 2026-04-20 (Phase 8C-α Integration Close-Out — `FeatureImportanceArtifact.__post_init__` WARN on missing `feature_set_ref` for `method="permutation"` (architect-Q9.1; exploratory runs still allowed); preserves Stage C.2 + 2-round post-audit: v2 schema + `ExperimentRecord.artifacts[]` + `INDEX_SCHEMA_VERSION=1.3.0` + `block_length_samples` rename + `from_dict` migration + v1/v2 content-hash divergence lock + `compute_stability` in `__all__` + (0,0)→0.0)
 
 ## Role in the Pipeline
 

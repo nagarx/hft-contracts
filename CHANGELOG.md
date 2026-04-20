@@ -39,6 +39,20 @@ in the private monorepo; the 9 pre-2.2.0 commits are preserved in
   (see below). `from_dict` transparently migrates legacy v1 artifacts
   that used `block_size_days` into the v2 `block_length_samples` field.
 
+### Changed (Phase 8C-α Integration Close-Out, 2026-04-20 round-2 follow-up)
+
+- **`FeatureImportanceArtifact.__post_init__` feature_set_ref WARN
+  policy** (architect-Q9.1) — when `method="permutation"` AND
+  `feature_set_ref is None`, emits a `logging.warning` at construction
+  time. Exploratory workflows (ad-hoc `feature_indices` without a
+  registered FeatureSet) remain first-class: artifact still emitted +
+  ledger-routed, but operators know Stage C.5 feedback-merge cannot
+  consume it (no feature-set to reconcile against evaluator profiles).
+  Warn-and-allow per hft-rules §8 (never silently drop data; always
+  record diagnostics). +2 regression tests
+  (`test_missing_feature_set_ref_for_permutation_warns`,
+  `test_present_feature_set_ref_does_not_warn`). Test count 333 → 335.
+
 ### Changed (Phase 8C-α post-audit hardening, 2026-04-20)
 
 - **`block_size_days` → `block_length_samples`** on

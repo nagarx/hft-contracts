@@ -187,6 +187,42 @@ class FeatureImportanceArtifact:
     timestamp_utc: str
     method_caveats: Tuple[str, ...] = field(default_factory=tuple)
 
+    def __post_init__(self) -> None:
+        """Validate at construction time (fail-loud per hft-rules §8).
+
+        Phase 8C-α post-audit round-2 architect-Q9.1: feature_set_ref is
+        declared required in the TOML contract but ``Optional`` in
+        Python to preserve exploratory workflows (ad-hoc feature_indices
+        without a registered FeatureSet). When method == "permutation"
+        AND feature_set_ref is None, the artifact CAN still be emitted +
+        content-addressed + stored in the ledger — but Stage C.5
+        evaluator feedback-merge cannot consume it (no feature-set to
+        reconcile against profiles). Emit a WARN so operators know the
+        artifact is a dead-end for feedback-merge, not a silent drop
+        (§8 explicit: never silently "fix" data without diagnostics).
+
+        This is informational, not fatal. Exploratory runs remain first-
+        class citizens — an operator auditing feature importance of an
+        ad-hoc subset is a legitimate use case that should NOT raise.
+        """
+        if (
+            self.method == "permutation"
+            and self.feature_set_ref is None
+        ):
+            import logging
+            logging.getLogger(__name__).warning(
+                "FeatureImportanceArtifact: feature_set_ref is None for "
+                "method='permutation' (experiment_id=%r, model_type=%r). "
+                "Artifact will be emitted + ledger-routed, but "
+                "Stage C.5 evaluator feedback-merge CANNOT consume it "
+                "(no feature_set to reconcile against evaluator profiles). "
+                "To enable feedback-merge, pass feature_set_ref = "
+                "{'name': <registry_name>, 'content_hash': <sha>} — "
+                "typically resolved from `ResolvedFeatureSet` when a "
+                "registered FeatureSet is used.",
+                self.experiment_id, self.model_type,
+            )
+
     # -----------------------------------------------------------------
     # Serialization
     # -----------------------------------------------------------------

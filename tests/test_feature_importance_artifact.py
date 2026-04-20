@@ -356,6 +356,41 @@ class TestPostAuditFixes:
             f"Got block_length_samples={reloaded.block_length_samples}."
         )
 
+    # ---- architect-Q9.1: feature_set_ref WARN policy ----
+
+    def test_missing_feature_set_ref_for_permutation_warns(self, caplog):
+        """Phase 8C-α post-audit round-2 architect-Q9.1: when
+        method='permutation' AND feature_set_ref is None, emit a WARN
+        (not raise) — exploratory runs remain first-class citizens but
+        operators must know the artifact is dead-end for Stage C.5
+        feedback-merge.
+        """
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING):
+            artifact = _make_artifact(feature_set_ref=None)
+        assert artifact is not None  # must NOT raise
+        assert artifact.feature_set_ref is None
+        warn_messages = [r.message for r in caplog.records
+                         if r.levelno >= _logging.WARNING]
+        assert any("feature_set_ref is None" in m for m in warn_messages), (
+            f"Expected WARN about missing feature_set_ref for "
+            f"permutation method. Got: {warn_messages}"
+        )
+
+    def test_present_feature_set_ref_does_not_warn(self, caplog):
+        """If feature_set_ref is supplied, NO warning should fire.
+        Locks that the warn is specifically for the None case, not
+        arbitrary noise."""
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING):
+            artifact = _make_artifact()  # default has feature_set_ref set
+        warn_messages = [r.message for r in caplog.records
+                         if r.levelno >= _logging.WARNING]
+        assert not any("feature_set_ref is None" in m for m in warn_messages), (
+            f"WARN fired despite feature_set_ref being present. Got: "
+            f"{warn_messages}"
+        )
+
     def test_content_hash_differs_across_v1_and_v2_migration(self):
         """Round-2 (contracts-review H2): v1 artifact
         {schema_version:'1', block_size_days:1} and v2 artifact
