@@ -1,0 +1,60 @@
+{
+  "contract_version": "2.2",
+  "data_source": "mbo_lob_phase0_synthetic",
+  "day": "20260420_phase0_mbo",
+  "export_timestamp": "2026-04-20T00:00:00+00:00",
+  "forward_prices": {
+    "column_layout": "col_0=t-5, col_5=t, col_305=t+max_H",
+    "exported": true,
+    "max_horizon": 300,
+    "n_columns": 306,
+    "smoothing_window_offset": 5,
+    "units": "USD"
+  },
+  "label_dtype": "float64",
+  "label_strategy": "regression",
+  "labeling": {
+    "horizons": [
+      10,
+      60,
+      300
+    ],
+    "label_encoding": {
+      "description": "PointReturn forward return in bps at each horizon (synthetic)",
+      "dtype": "float64",
+      "format": "continuous_bps",
+      "unit": "basis_points"
+    },
+    "label_mode": "regression",
+    "num_horizons": 3,
+    "return_type": "PointReturn"
+  },
+  "n_features": 98,
+  "n_sequences": 10,
+  "normalization": {
+    "applied": false,
+    "feature_layout": "raw_ask_prices_10_ask_sizes_10_bid_prices_10_bid_sizes_10",
+    "levels": 10,
+    "params_file": null,
+    "sample_count": 10,
+    "strategy": "none"
+  },
+  "provenance": {
+    "config_hash": "phase0_synthetic_mbo_v1",
+    "contract_version": "2.2",
+    "export_timestamp_utc": "2026-04-20T00:00:00+00:00",
+    "extractor_version": "phase0_synthetic",
+    "git_commit": "phase0_deterministic",
+    "git_dirty": false
+  },
+  "schema_version": "2.2",
+  "seed": 42,
+  "tensor_format": null,
+  "validation": {
+    "label_range_valid": true,
+    "no_nan_inf": true,
+    "sequences_labels_match": true,
+    "values_scanned": 19600
+  },
+  "window_size": 20
+}

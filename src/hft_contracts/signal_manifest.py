@@ -42,6 +42,11 @@ import numpy as np
 # import ContractError`` remains a valid access path.
 from hft_contracts.validation import ContractError
 
+# Phase II (2026-04-20): CompatibilityContract embedded in the manifest for
+# 3-way fingerprint validation. Imported here (intra-package, no cycle risk)
+# so ``validate()`` can call ``contract.fingerprint()`` at check time.
+from hft_contracts.compatibility import CompatibilityContract
+
 
 # Phase 6 6A.9 (2026-04-17): module-level regex for content_hash validation.
 # Matches hft_contracts.canonical_hash.sha256_hex output format (64 lowercase
@@ -90,7 +95,15 @@ HYBRID_OPTIONAL = [
     "spreads.npy",
 ]
 
-# Files that must have shape[0] == N (first dimension alignment)
+# Files that must have shape[0] == N (first dimension alignment).
+#
+# Phase II (2026-04-20): ``calibrated_returns.npy`` added to the list so its
+# shape is cross-checked against predicted_returns.npy when BOTH exist. Previously
+# a stale calibrated file could silently win over a fresh predicted-returns file
+# via the backtester's file-existence precedence (validation report D10). The
+# shape-check closes one failure mode; the ``SignalManifest.calibration_method``
+# field + ``validate()`` precedence rule close the other (orphan file without
+# manifest claim).
 ALIGNED_FILES = [
     "prices.npy",
     "predictions.npy",
@@ -99,6 +112,7 @@ ALIGNED_FILES = [
     "confirmation_score.npy",
     "spreads.npy",
     "predicted_returns.npy",
+    "calibrated_returns.npy",
     "regression_labels.npy",
 ]
 
@@ -143,6 +157,24 @@ class SignalManifest:
     # at trainer load time; recomputation would create a 4th
     # canonical-form site per PA §13.4.2).
     feature_set_ref: Optional[Dict[str, str]] = None
+
+    # Phase II (2026-04-20): CompatibilityContract fingerprint for cross-module
+    # producer ↔ consumer validation. ``compatibility`` carries the 11-key
+    # shape-determining fields; ``compatibility_fingerprint`` is the stored
+    # producer-side SHA-256 that validate() re-derives (tamper detection).
+    # Both None on pre-Phase-II signal directories — validate() warns unless
+    # ``strict=True`` is passed.
+    # See hft_contracts.compatibility for the contract surface.
+    compatibility: Optional["CompatibilityContract"] = None
+    compatibility_fingerprint: Optional[str] = None
+    # Phase II D10 fix: manifest-declared calibration state. When non-None,
+    # validate() requires calibrated_returns.npy to exist (and vice-versa —
+    # orphan file with None claim raises). Backtester consumes this as the
+    # authoritative precedence gate (file-existence alone is not sufficient).
+    calibration_method: Optional[str] = None
+    # Phase II: data source tag, echoed from compatibility.data_source for
+    # quick inspection without parsing the nested contract.
+    data_source: Optional[str] = None
 
     @classmethod
     def from_signal_dir(cls, signal_dir: Path) -> "SignalManifest":
@@ -207,6 +239,26 @@ class SignalManifest:
 
         required, optional = cls._files_for_type(signal_type)
 
+        # Phase II (2026-04-20): optional compatibility contract + stored fingerprint.
+        # Older signal directories won't have these — fields stay None and validate()
+        # emits a DeprecationWarning in non-strict mode.
+        compat_block = meta.get("compatibility")
+        compatibility: Optional[CompatibilityContract] = None
+        compatibility_fp: Optional[str] = meta.get("compatibility_fingerprint")
+        if isinstance(compat_block, dict):
+            try:
+                compatibility = _compatibility_from_dict(compat_block)
+            except (TypeError, KeyError, ValueError) as exc:
+                # Malformed block — treat as absent so legacy directories still load.
+                # validate() will raise if compatibility_fingerprint is ALSO present
+                # (that combination indicates tampering, not legacy).
+                compatibility = None
+                # Keep compat_fp so validate() can surface the inconsistency.
+                _ = exc
+
+        calibration_method = meta.get("calibration_method")
+        data_source = meta.get("data_source")
+
         return cls(
             signal_type=signal_type,
             model_type=model_type,
@@ -219,6 +271,10 @@ class SignalManifest:
             export_timestamp=timestamp,
             model_metrics=model_metrics,
             feature_set_ref=feature_set_ref,
+            compatibility=compatibility,
+            compatibility_fingerprint=compatibility_fp,
+            calibration_method=calibration_method,
+            data_source=data_source,
         )
 
     @classmethod
@@ -267,18 +323,209 @@ class SignalManifest:
             return list(REGRESSION_REQUIRED), list(REGRESSION_OPTIONAL)
         return list(CLASSIFICATION_REQUIRED), list(CLASSIFICATION_OPTIONAL)
 
-    def validate(self, signal_dir: Path) -> List[str]:
+    def validate(
+        self,
+        signal_dir: Path,
+        expected_contract: Optional[CompatibilityContract] = None,
+        expected_fields: Optional[Dict[str, Any]] = None,
+        strict: bool = False,
+    ) -> List[str]:
         """Validate signal directory against this manifest.
 
+        Args:
+            signal_dir: Path to signal directory (contains NPY files + signal_metadata.json).
+            expected_contract: Phase II (2026-04-20). Consumer-derived
+                CompatibilityContract. When provided, validate() performs a 3-way
+                fingerprint check: ``stored_fingerprint == producer.fingerprint()``
+                (tamper detection) AND ``stored_fingerprint == expected.fingerprint()``
+                (version-skew detection). A mismatch raises ``ContractError`` with
+                a field-level diff.
+            expected_fields: Phase II hardening (2026-04-20). Consumer-derived
+                PARTIAL assertion — a dict of ``{CompatibilityContract-field-name: expected_value}``
+                that the consumer actually knows. Architecturally cleaner than
+                ``expected_contract`` for consumers whose config only covers a subset
+                of the 11-field contract (e.g., a backtester that only knows
+                ``primary_horizon_idx`` but defers every other field to the trainer).
+                Every field present in ``expected_fields`` MUST match the manifest's
+                ``compatibility.<field>`` or ContractError is raised with a
+                field-level diff. Precedence: if ``expected_contract`` is supplied,
+                the full fingerprint check runs first; ``expected_fields`` runs as
+                an additional gate on top. Silently-ignored invalid keys are
+                disallowed — any key not on ``CompatibilityContract.key_fields()``
+                raises ``ValueError`` (prevents silent typos like ``horizen_idx``).
+            strict: Phase II (2026-04-20). When True, legacy manifests
+                (``compatibility=None``) are REJECTED with ContractError. In lenient
+                mode (default), legacy manifests emit a DeprecationWarning and skip
+                the 3-way check but still run shape/NaN validation. Strict mode is
+                the recommended setting for production consumers after the 2-week
+                back-compat window — see ``hft_contracts/CHANGELOG.md`` v2.3.0.
+
         Raises:
-            ContractError: For critical issues (missing required files,
-                shape mismatch, non-finite values).
+            ContractError: For critical issues:
+                - Missing required files
+                - Shape mismatch across ALIGNED_FILES
+                - Non-finite values in required arrays
+                - (Phase II) compatibility_fingerprint is set but compatibility block absent
+                  (tamper indicator)
+                - (Phase II) producer-fingerprint mismatch (tamper detected)
+                - (Phase II) expected-fingerprint mismatch (contract version skew)
+                - (Phase II) orphan calibrated_returns.npy (file exists but manifest claims no calibration)
+                - (Phase II) manifest claims calibration but calibrated_returns.npy missing
+                - (Phase II) strict=True + compatibility=None (legacy manifest rejected)
+                - (Phase II hardening) expected_fields mismatch — consumer asserted
+                  a field-level expectation that the manifest contradicts
+            ValueError: If ``expected_fields`` contains a key that is not a
+                ``CompatibilityContract`` field name (typo detection — fail loud,
+                not silent).
 
         Returns:
-            List of non-critical warning strings (dtype coercion, range anomalies).
+            List of non-critical warning strings (dtype coercion, range anomalies,
+            legacy-manifest deprecation notices).
         """
         signal_dir = Path(signal_dir)
         warnings: List[str] = []
+
+        # --- Phase II: CompatibilityContract 3-way validation (runs FIRST so that
+        # a version-skewed signal is rejected before any NPY-load work is done). ---
+        if self.compatibility is None and self.compatibility_fingerprint is None:
+            # Pre-Phase-II signal directory. Legacy back-compat path.
+            if strict:
+                raise ContractError(
+                    "Signal manifest lacks CompatibilityContract. strict=True mode "
+                    "enforces Phase II (2026-04-20) signals only. Re-export signals "
+                    "with a Phase-II-aware trainer OR pass strict=False to accept "
+                    "legacy R1-R8 signal directories with shape/NaN/range checks only."
+                )
+            warnings.append(
+                "Legacy signal manifest — no CompatibilityContract present. "
+                "Validation limited to shape/NaN/range. Re-export signals to gain "
+                "producer↔consumer fingerprint check (Phase II, 2026-04-20)."
+            )
+        elif self.compatibility is not None and self.compatibility_fingerprint is None:
+            raise ContractError(
+                "Signal manifest has compatibility block but no compatibility_fingerprint "
+                "stored alongside. This is malformed — either both or neither must be present. "
+                f"compatibility={self.compatibility!r}"
+            )
+        elif self.compatibility is None and self.compatibility_fingerprint is not None:
+            raise ContractError(
+                "Signal manifest has compatibility_fingerprint "
+                f"({self.compatibility_fingerprint[:16]}...) but no compatibility block — "
+                "cannot re-verify the hash. Tamper indicator per Phase II contract."
+            )
+        else:
+            # Both present — run the 3-way check.
+            # Check 1: producer fingerprint matches stored (detects tampering of the block).
+            recomputed = self.compatibility.fingerprint()
+            if recomputed != self.compatibility_fingerprint:
+                raise ContractError(
+                    f"Signal manifest CompatibilityContract fingerprint TAMPERED: "
+                    f"stored={self.compatibility_fingerprint[:16]}..., "
+                    f"recomputed={recomputed[:16]}.... "
+                    f"The compatibility block has been modified without updating the "
+                    f"fingerprint, OR the canonical_hash convention has drifted. "
+                    f"Contract surface: {self.compatibility.key_fields()}"
+                )
+            # Check 2: consumer's expected fingerprint matches stored (detects version skew).
+            if expected_contract is not None:
+                expected_fp = expected_contract.fingerprint()
+                if expected_fp != self.compatibility_fingerprint:
+                    diff = self.compatibility.diff(expected_contract)
+                    raise ContractError(
+                        f"Signal was produced under a different CompatibilityContract than "
+                        f"the consumer expects. "
+                        f"Differing fields: {diff}. "
+                        f"Re-export signals OR update consumer config to match producer."
+                    )
+
+        # --- Phase II hardening: partial expected_fields assertion ---
+        # Consumers whose config only covers a narrow subset of the 11-key
+        # contract (e.g., backtester knows ``primary_horizon_idx`` but defers
+        # all other axes to the trainer) pass a dict of the fields they actually
+        # know. Typo'd keys raise ValueError (fail-loud), not silently-accept.
+        if expected_fields is not None:
+            # SB-D: empty dict is a caller-side logic error — fail loud, not silent.
+            # A caller passing an empty dict almost certainly intended to assert
+            # SOMETHING; accepting silently hides that the assertion was dropped
+            # (e.g., config parsing produced an empty dict instead of None).
+            # This matches hft-rules §5 "fail fast with a precise error — never
+            # silently degrade." Tested in test_signal_manifest_compatibility.py.
+            if not expected_fields:
+                raise ValueError(
+                    "expected_fields must be None or a non-empty dict. "
+                    "An empty dict indicates a consumer-side logic error — the "
+                    "caller intended to assert but produced no assertions. Pass "
+                    "None to explicitly skip the partial-assertion gate."
+                )
+            if self.compatibility is None:
+                # Legacy manifest — the check can't run but the consumer's intent
+                # was to verify; surface that as a warning so the operator knows
+                # version-skew was NOT validated.
+                warnings.append(
+                    "Consumer supplied expected_fields but signal manifest has no "
+                    "CompatibilityContract — version-skew check SKIPPED. "
+                    "Re-export signals with Phase-II-aware trainer to enable."
+                )
+            else:
+                valid_keys = set(self.compatibility.key_fields())
+                unknown = set(expected_fields.keys()) - valid_keys
+                if unknown:
+                    raise ValueError(
+                        f"expected_fields contains keys not on CompatibilityContract: "
+                        f"{sorted(unknown)}. Valid field names: {sorted(valid_keys)}. "
+                        f"This is a consumer-side bug — fix the caller."
+                    )
+                mismatches: Dict[str, Any] = {}
+                for key, expected_val in expected_fields.items():
+                    actual_val = getattr(self.compatibility, key)
+                    # Tuple/list interop: consumers may pass [10, 60, 300] for
+                    # horizons; the contract stores (10, 60, 300). Normalize
+                    # via tuple(...) for sequence fields.
+                    if isinstance(actual_val, tuple) and isinstance(expected_val, list):
+                        expected_cmp: Any = tuple(expected_val)
+                    else:
+                        expected_cmp = expected_val
+                    if actual_val != expected_cmp:
+                        mismatches[key] = (actual_val, expected_cmp)
+                if mismatches:
+                    raise ContractError(
+                        f"Signal compatibility fields diverge from consumer expectations: "
+                        f"{mismatches}. Either the consumer is mis-configured or the "
+                        f"signal directory was produced under a different contract. "
+                        f"Format: {{field: (manifest_value, expected_value)}}."
+                    )
+
+        # --- Phase II: Calibration precedence rule (D10 fix) ---
+        # The orphan-file rule treats a disagreement between manifest
+        # ``calibration_method`` and the presence of ``calibrated_returns.npy``
+        # as a strict contract violation. validate=True applies this to ALL
+        # manifests — including legacy directories (pre-Phase-II, no
+        # ``compatibility`` block). If an operator is intentionally re-running
+        # a legacy directory (e.g., E6 ``calibrated_conviction``), they must
+        # call ``BacktestData.from_signal_dir(..., validate=False)`` to use
+        # the legacy file-existence precedence path documented in that
+        # method's docstring. hft-rules §8: "Never silently drop, clamp, or
+        # 'fix' data without recording diagnostics." — enforcing the strict
+        # rule at validate=True catches stale-file contamination that would
+        # otherwise corrupt the backtest silently; opt-out via validate=False
+        # is explicit.
+        calibrated_path = signal_dir / "calibrated_returns.npy"
+        has_file = calibrated_path.exists()
+        has_claim = self.calibration_method is not None
+        if has_file and not has_claim:
+            raise ContractError(
+                f"Orphan calibrated_returns.npy at {calibrated_path} — manifest declares "
+                f"calibration_method=None (or lacks the field). This may indicate a stale "
+                f"calibration file from a previous export. To intentionally load a legacy "
+                f"(pre-Phase-II) signal directory, pass validate=False — that path uses "
+                f"file-existence precedence for back-compat. Otherwise: re-export signals "
+                f"OR delete the orphan."
+            )
+        if has_claim and not has_file:
+            raise ContractError(
+                f"Manifest declares calibration_method={self.calibration_method!r} but "
+                f"calibrated_returns.npy is missing at {calibrated_path}. Re-export signals."
+            )
 
         # 1. Check required files exist
         for fname in self.required_files:
@@ -378,6 +625,32 @@ class SignalManifest:
             )
             lines.append(f"  Metrics: {metrics_str}")
         return "\n".join(lines)
+
+
+def _compatibility_from_dict(payload: Dict[str, Any]) -> CompatibilityContract:
+    """Construct a ``CompatibilityContract`` from a parsed signal_metadata.json block.
+
+    Handles the JSON→Python type coercion (``horizons`` is a list on-disk, must be
+    a tuple for the frozen dataclass to hash cleanly; ``horizons`` may be None).
+    Raises ``TypeError`` / ``KeyError`` / ``ValueError`` if the block is malformed —
+    callers that want to fall back to legacy loading should catch these.
+    """
+    horizons = payload.get("horizons")
+    if horizons is not None and not isinstance(horizons, tuple):
+        horizons = tuple(horizons)
+    return CompatibilityContract(
+        contract_version=payload["contract_version"],
+        schema_version=payload["schema_version"],
+        feature_count=int(payload["feature_count"]),
+        window_size=int(payload["window_size"]),
+        feature_layout=payload["feature_layout"],
+        data_source=payload["data_source"],
+        label_strategy_hash=payload["label_strategy_hash"],
+        calibration_method=payload.get("calibration_method"),
+        primary_horizon_idx=payload.get("primary_horizon_idx"),
+        horizons=horizons,
+        normalization_strategy=payload["normalization_strategy"],
+    )
 
 
 __all__ = [

@@ -334,6 +334,13 @@ __all__ = [
     # hft_contracts._atomic_io; underscore shim retained through 2026-10-31).
     "atomic_write_json",
     "AtomicWriteError",
+    # Phase II (2026-04-20): cross-module compatibility contract + fingerprint.
+    # See hft_contracts.compatibility for the 11-key shape-determining surface
+    # that every cross-module artifact (signal directory, checkpoint, feature
+    # importance, future kinds) embeds for 3-way validation at load time.
+    "CompatibilityContract",
+    "COMPATIBILITY_CONTRACT_SCHEMA_VERSION",
+    "compute_label_strategy_hash",
     # Package version (REV 2 pre-push).
     "__version__",
 ]
@@ -368,6 +375,11 @@ from hft_contracts.provenance import (
     PROVENANCE_SCHEMA_VERSION,
 )
 from hft_contracts.signal_manifest import SignalManifest, CONTENT_HASH_RE
+from hft_contracts.compatibility import (
+    CompatibilityContract,
+    COMPATIBILITY_CONTRACT_SCHEMA_VERSION,
+    compute_label_strategy_hash,
+)
 from hft_contracts.experiment_record import (
     ExperimentRecord,
     RecordType,

@@ -1,0 +1,36 @@
+{
+  "bin_size_seconds": 60,
+  "contract_version": "2.2",
+  "data_source": "off_exchange_phase0_synthetic",
+  "day": "20260420_phase0_basic",
+  "export_timestamp": "2026-04-20T00:00:00+00:00",
+  "horizons": [
+    1,
+    2,
+    3,
+    5,
+    10,
+    20,
+    30,
+    60
+  ],
+  "label_dtype": "float64",
+  "label_strategy": "point_return",
+  "n_features": 34,
+  "n_sequences": 10,
+  "normalization": {
+    "applied": false,
+    "strategy": "none"
+  },
+  "provenance": {
+    "config_hash": "phase0_synthetic_basic_v1",
+    "contract_version": "2.2",
+    "export_timestamp_utc": "2026-04-20T00:00:00+00:00",
+    "extractor_version": "phase0_synthetic",
+    "git_commit": "phase0_deterministic",
+    "git_dirty": false
+  },
+  "schema_version": "2.2",
+  "seed": 42,
+  "window_size": 20
+}
