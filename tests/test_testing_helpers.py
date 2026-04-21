@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from hft_contracts._testing import phase0_fixture_dir
+from hft_contracts._testing import phase0_fixture_dir, require_monorepo_root
 
 
 class TestPhase0FixtureDir:
@@ -50,3 +50,88 @@ class TestPhase0FixtureDir:
         a = phase0_fixture_dir()
         b = phase0_fixture_dir()
         assert a == b
+
+
+class TestRequireMonorepoRoot:
+    """Lock `require_monorepo_root(*subpaths)` contract.
+
+    Phase V.A.0 (2026-04-21): SSoT pattern replacing 20+ ad-hoc
+    ``Path(__file__).resolve().parents[N]`` + bare ``assert ... .exists()``
+    sites across 9 test files in hft-ops and lob-model-trainer. Consumer
+    tests that genuinely need the monorepo layout (cross-repo fixture
+    loading, trainer merge.py reflection, etc.) must use this helper
+    INSTEAD of raw path walks — it converts module-level ``assert`` errors
+    (pytest exit-code-2) into clean ``pytest.skip`` (exit-code-0), matching
+    the established ``pytest.importorskip`` convention.
+
+    These tests assume running FROM INSIDE the monorepo. In a
+    standalone-clone CI environment, `require_monorepo_root` would itself
+    call ``pytest.skip`` — so these tests too would skip cleanly rather
+    than ERROR. That's consistent behavior, not a bug.
+    """
+
+    def test_returns_monorepo_root_when_present(self):
+        """Happy path: monorepo root resolves via upward walk."""
+        root = require_monorepo_root()
+        assert root.name == "HFT-pipeline-v2"
+        assert root.is_dir()
+        assert root.is_absolute()
+
+    def test_idempotent(self):
+        """Multiple calls return equal paths."""
+        a = require_monorepo_root()
+        b = require_monorepo_root()
+        assert a == b
+
+    def test_accepts_single_valid_subpath(self):
+        """Passing a valid required subpath returns the same root."""
+        root = require_monorepo_root("hft-contracts/pyproject.toml")
+        assert root.name == "HFT-pipeline-v2"
+
+    def test_accepts_multiple_valid_subpaths(self):
+        """All valid subpaths present → returns root."""
+        root = require_monorepo_root(
+            "hft-contracts/pyproject.toml",
+            "hft-contracts/src/hft_contracts/__init__.py",
+            "hft-contracts/tests",
+        )
+        assert root.name == "HFT-pipeline-v2"
+
+    def test_bare_call_equivalent_to_all_valid_subpaths(self):
+        """No-subpath call and all-valid-subpath call return equal roots."""
+        bare = require_monorepo_root()
+        with_subpath = require_monorepo_root("hft-contracts/pyproject.toml")
+        assert bare == with_subpath
+
+    def test_skips_when_required_subpath_missing(self):
+        """Missing subpath → pytest.skip (caught as Skipped via pytest.raises)."""
+        with pytest.raises(pytest.skip.Exception):
+            require_monorepo_root(
+                "this/path/intentionally/does/not/exist/anywhere.impossible"
+            )
+
+    def test_skips_when_second_of_two_subpaths_missing(self):
+        """Short-circuit not required — any failing subpath triggers skip."""
+        with pytest.raises(pytest.skip.Exception):
+            require_monorepo_root(
+                "hft-contracts/pyproject.toml",  # exists
+                "nonexistent/second/subpath",     # missing
+            )
+
+    def test_skip_message_cites_missing_subpath(self):
+        """Skip message includes the failing subpath for triage visibility."""
+        try:
+            require_monorepo_root("this/path/is/not/here.missing")
+        except pytest.skip.Exception as exc:
+            assert "this/path/is/not/here.missing" in str(exc), (
+                f"Skip message should cite the specific missing subpath; "
+                f"got: {exc!s}"
+            )
+        else:
+            pytest.fail("require_monorepo_root should have skipped")
+
+    def test_returns_existing_directory(self):
+        """Returned root must exist as a directory (not a dangling symlink)."""
+        root = require_monorepo_root()
+        assert root.exists()
+        assert root.is_dir()
