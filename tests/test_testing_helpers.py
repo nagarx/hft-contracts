@@ -148,3 +148,65 @@ class TestRequireMonorepoRoot:
         root = require_monorepo_root()
         assert root.exists()
         assert root.is_dir()
+
+    def test_signature_file_required_under_candidate(self):
+        """V.A.0 audit C1: root must contain `contracts/pipeline_contract.toml`.
+
+        This guards against the pytest fixture collision where
+        ``tmp_path / "HFT-pipeline-v2"`` is created as a mock monorepo
+        tree; bare name matching would match the synthetic tree first if
+        TMPDIR is set inside the real monorepo. The signature-file check
+        ensures only the real root (which has the canonical TOML)
+        resolves.
+        """
+        root = require_monorepo_root()
+        assert (root / "contracts" / "pipeline_contract.toml").exists(), (
+            "Resolved monorepo root must contain the signature file "
+            "`contracts/pipeline_contract.toml`; otherwise the walk's "
+            "directory-name match collided with a tmp_path fixture."
+        )
+
+    def test_walk_is_memoized(self):
+        """V.A.0 audit F6: walk cached via lru_cache for perf + stability."""
+        from hft_contracts._testing import _discover_monorepo_root
+
+        # Clear cache to start from a known state, exercise twice, verify
+        # identity (same Path object returned on 2nd call — proves cache hit).
+        _discover_monorepo_root.cache_clear()
+        first = _discover_monorepo_root()
+        second = _discover_monorepo_root()
+        # lru_cache stores the return value; `is` identity confirms cache hit
+        # (both calls return the exact same Path instance, not a fresh resolve).
+        assert first is second, (
+            "_discover_monorepo_root should be memoized (lru_cache); "
+            "got fresh Path instances on 2nd call."
+        )
+
+    def test_reason_prefix_included_in_skip_message(self):
+        """V.A.0 audit F11: reason_prefix kwarg prepends context to skip."""
+        context = "Integration tests require data/exports layout"
+        with pytest.raises(pytest.skip.Exception) as exc_info:
+            require_monorepo_root(
+                "nonexistent/subpath/for/this/test",
+                reason_prefix=context,
+            )
+        msg = str(exc_info.value)
+        assert context in msg, (
+            f"Skip message should prepend the reason_prefix context; "
+            f"got: {msg!r}"
+        )
+        # Generic message should still be present (reason_prefix PREPENDS,
+        # not replaces):
+        assert "nonexistent/subpath" in msg, (
+            f"Generic message should follow reason_prefix; got: {msg!r}"
+        )
+
+    def test_no_reason_prefix_omits_prefix(self):
+        """Absent reason_prefix → skip message is the generic form only."""
+        with pytest.raises(pytest.skip.Exception) as exc_info:
+            require_monorepo_root("nonexistent/another/subpath")
+        msg = str(exc_info.value)
+        # No colon-based prefix pattern at the start
+        assert not msg.startswith(":"), (
+            f"No-prefix skip should not start with bare colon; got: {msg!r}"
+        )

@@ -19,6 +19,7 @@ Rationale (plan v2.0, §Architectural Invariants #4 "Load-bearing contracts only
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Optional
 
@@ -32,8 +33,55 @@ __all__ = ["phase0_fixture_dir", "require_monorepo_root"]
 # configure around it.
 _MONOREPO_DIR_NAME = "HFT-pipeline-v2"
 
+# Signature file that MUST exist under a candidate monorepo-root to
+# disambiguate it from synthetic test fixtures. Phase V.A.0 audit finding
+# C1: ``hft-ops/tests/conftest.py::tmp_pipeline`` creates
+# ``tmp_path / "HFT-pipeline-v2"`` as a mock monorepo tree for unit tests.
+# Bare directory-name matching (without this signature-file check) would
+# match the fake tree first if pytest sets ``TMPDIR`` to a subdirectory of
+# the real monorepo (unusual but legal). The signature file
+# ``contracts/pipeline_contract.toml`` is the monorepo's root-level SSoT —
+# it exists in every real monorepo checkout and NEVER in a tmp_path
+# fixture. Checking it eliminates the directory-name collision class.
+_MONOREPO_SIGNATURE_PATH = "contracts/pipeline_contract.toml"
 
-def require_monorepo_root(*required_subpaths: str) -> Path:
+
+@functools.lru_cache(maxsize=1)
+def _discover_monorepo_root() -> Optional[Path]:
+    """Walk upward from this module's ``__file__`` looking for a monorepo root.
+
+    Cached via ``functools.lru_cache(maxsize=1)`` so subsequent calls in the
+    same Python process skip the walk + stat calls. Phase V.A.0 audit
+    finding F6: without memoization, 150+ calls in a parametrized
+    fingerprint test re-walked parents and re-stat'd the signature path,
+    adding ~1-5ms per call with no correctness benefit. Result cache
+    preserves idempotency (same process = same answer).
+
+    Returns the monorepo root ``Path`` on success, or ``None`` when the
+    layout is absent (standalone-clone / fresh CI). Callers that want a
+    skip-on-absent pattern use ``require_monorepo_root``.
+
+    Note on cache invalidation: if a user relocates the monorepo during
+    a Python process's lifetime (extremely rare; would require a file-
+    system mutation mid-test-run), the cached result is stale. Clear via
+    ``_discover_monorepo_root.cache_clear()`` in that edge case.
+    """
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        # Two-factor match: (1) directory name equals the monorepo's
+        # canonical name, AND (2) the signature file exists under that
+        # candidate. The latter disambiguates real monorepo roots from
+        # tmp_path fixtures that happen to create a directory named
+        # ``HFT-pipeline-v2`` for unit testing. See C1 finding above.
+        if parent.name == _MONOREPO_DIR_NAME and (parent / _MONOREPO_SIGNATURE_PATH).exists():
+            return parent
+    return None
+
+
+def require_monorepo_root(
+    *required_subpaths: str,
+    reason_prefix: Optional[str] = None,
+) -> Path:
     """Return the HFT-pipeline-v2 monorepo root, or skip the enclosing test.
 
     Tests that genuinely need the monorepo layout (e.g., tests loading
@@ -104,42 +152,56 @@ def require_monorepo_root(*required_subpaths: str) -> Path:
     ad-hoc ``parents[N]`` + ``.exists()`` sites across 9 test files in
     hft-ops and lob-model-trainer. New tests requiring the monorepo
     layout MUST use this helper; old sites migrated in the same Phase
-    V.A.0 commit series.
+    V.A.0 commit series. Hardened same-day via audit findings C1 (add
+    signature-file check to disambiguate from tmp_path fixtures), F3
+    (tighten docstring on allow_module_level semantics), F6 (memoize
+    walk via lru_cache), F11 (add reason_prefix kwarg for context-
+    preserving skip messages).
     """
     # Lazy import: pytest is not a runtime dependency of hft-contracts;
     # it's only present via the [dev] extra. Importing at function-scope
     # means hft-contracts's public surface doesn't depend on pytest.
     import pytest as _pytest
 
-    current = Path(__file__).resolve()
-    root: Optional[Path] = None
-    for parent in current.parents:
-        if parent.name == _MONOREPO_DIR_NAME:
-            root = parent
-            break
+    def _skip(base_msg: str) -> None:
+        """Apply ``reason_prefix`` if set, then call ``pytest.skip``.
+
+        Both module-scope and function-scope calls pass through this
+        helper; pytest ignores ``allow_module_level`` in function
+        scope but honors it at module scope (load-bearing for the
+        latter).
+        """
+        full_msg = f"{reason_prefix}: {base_msg}" if reason_prefix else base_msg
+        _pytest.skip(full_msg, allow_module_level=True)
+
+    # Discover root via memoized walk (F6). Returns None when the
+    # monorepo layout is absent (standalone-clone / fresh CI).
+    root = _discover_monorepo_root()
 
     if root is None:
-        _pytest.skip(
-            f"{_MONOREPO_DIR_NAME} monorepo root not found — this test "
-            f"requires the monorepo layout (sibling repos under a common "
-            f"`{_MONOREPO_DIR_NAME}/` parent directory) and skips cleanly "
-            f"when absent (e.g., on GitHub Actions CI, on a fresh "
-            f"standalone clone of a single sibling repo). To run this "
-            f"test locally, check out the full monorepo such that this "
-            f"file resolves to a path containing a `{_MONOREPO_DIR_NAME}/` "
-            f"ancestor.",
-            allow_module_level=True,
+        _skip(
+            f"{_MONOREPO_DIR_NAME} monorepo root not found (signature "
+            f"file `{_MONOREPO_SIGNATURE_PATH}` absent under any "
+            f"ancestor) — this test requires the monorepo layout "
+            f"(sibling repos under a common `{_MONOREPO_DIR_NAME}/` "
+            f"parent directory with the canonical contract TOML) and "
+            f"skips cleanly when absent (e.g., on GitHub Actions CI, on "
+            f"a fresh standalone clone of a single sibling repo). To "
+            f"run this test locally, check out the full monorepo such "
+            f"that this file resolves to a path containing a "
+            f"`{_MONOREPO_DIR_NAME}/` ancestor with "
+            f"`{_MONOREPO_SIGNATURE_PATH}` present."
         )
 
     for sub in required_subpaths:
         if not (root / sub).exists():
-            _pytest.skip(
-                f"Monorepo root resolved at {root!s} but required subpath "
-                f"`{sub}` not found. Full resolution: {(root / sub)!s}. "
-                f"This test needs the subpath for cross-repo fixture "
-                f"loading or a module import; skipping cleanly so CI / "
-                f"partial-checkout environments don't fail spuriously.",
-                allow_module_level=True,
+            _skip(
+                f"Monorepo root resolved at {root!s} but required "
+                f"subpath `{sub}` not found. Full resolution: "
+                f"{(root / sub)!s}. This test needs the subpath for "
+                f"cross-repo fixture loading or a module import; "
+                f"skipping cleanly so CI / partial-checkout "
+                f"environments don't fail spuriously."
             )
 
     return root
