@@ -1,6 +1,6 @@
 # AUTO-GENERATED from contracts/pipeline_contract.toml
 # DO NOT EDIT — run: python contracts/generate_python_contract.py
-# Schema version: 2.2 | Generated: 2026-04-12 23:44 UTC
+# Schema version: 2.2 | Generated: 2026-04-21 01:27 UTC
 """
 Pipeline contract constants generated from the authoritative TOML definition.
 

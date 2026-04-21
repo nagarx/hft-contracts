@@ -30,7 +30,93 @@
     "npz_file": "synthetic_basic.npz"
   },
   "description": "Deterministic synthetic fixtures for the Architectural Hardening Cycle (plan v2.0). Arrays hashes + metadata hash are pinned here. Downstream phases populate 'forward_pass' and 'compute_loss' sub-blocks as their models land. See README.md for acceptable-drift policy.",
-  "forward_pass": {},
+  "forward_pass": {
+    "hmhp_classifier": {
+      "compute_loss": {
+        "components": {
+          "H10": 1.1434502601623535,
+          "H300": 1.162928819656372,
+          "H60": 1.0632169246673584,
+          "consistency": 0.0,
+          "final": 1.1059341430664062
+        },
+        "value": 1.0051534175872803
+      },
+      "config": {
+        "hidden_dim": 16,
+        "horizons": [
+          10,
+          60,
+          300
+        ],
+        "num_encoder_layers": 1,
+        "num_features": 98,
+        "sequence_length": 20
+      },
+      "forward": {
+        "agreement_hash": "94fdefa63675a54851b4bd52a0c611b984190f46de0ebf58e17d2f2b4cf9b4ee",
+        "confidence_hash": "709c10a6653d511dbecedd85936e7606900f6b1bac59a323f1a0544f60ab8c18",
+        "horizon_logits_hashes": {
+          "10": "c1e3582073e1053a43449dd978ec4fbd25d92cfb371884b361842988b1841444",
+          "300": "30940644753337d5b2b1f6b5d589b5c8c0165123a2473341054bbfd99b946eb3",
+          "60": "8595c93d711d8660660fc4a33c5a464d09b20261f5901589f8347b6d58715206"
+        },
+        "horizon_logits_keys": [
+          10,
+          60,
+          300
+        ],
+        "logits_hash": "529bc78180393da003521e34cc821df659d5c11f9cc118a0017a5ca2f95e5b19",
+        "logits_shape": [
+          10,
+          3
+        ]
+      },
+      "model": "HMHP (classifier)",
+      "notes": "Forward-pass-only golden (seeded init weights, no training). Phase I.A will update agreement_hash (FRESH-2 fix) \u2014 document delta in CHANGELOG. Phase I.B will update compute_loss.value (pooling alignment + reduction refactor) \u2014 document delta.",
+      "pinned_by_phase": "0.3"
+    },
+    "hmhp_regressor": {
+      "compute_loss": {
+        "components": {
+          "H10": 3.628589630126953,
+          "H300": 2.842616319656372,
+          "H60": 3.448092222213745,
+          "consistency": 0.01273894403129816
+        },
+        "value": 2.407473564147949
+      },
+      "config": {
+        "hidden_dim": 16,
+        "horizons": [
+          10,
+          60,
+          300
+        ],
+        "num_encoder_layers": 1,
+        "num_features": 98,
+        "sequence_length": 20,
+        "use_regression": true
+      },
+      "forward": {
+        "agreement_hash": "00e1a993efd5074e1fc9c7ff6fc46a151ee4ed93935d05ee2ab229ded34975c1",
+        "horizon_predictions_hashes": {
+          "10": "1515bfc4e49d5f800a05d01dd486267146f767f06ff845d006b653f4402fb10d",
+          "300": "51cbebf31015194617bbc153377928b65a9029512a3bbf8c2abf704299cf3bba",
+          "60": "323812a00a25c1c138157bdfc74a5ecbb0bbd983d8964d4f86522290998b5716"
+        },
+        "horizon_predictions_keys": [
+          10,
+          60,
+          300
+        ]
+      },
+      "model": "HMHP (regressor)",
+      "notes": "Forward-pass-only golden (seeded init). Phase I.A FRESH-2 fix will change agreement_hash (NaN-aware three-valued sign + nonzero_fraction added). Phase I.B compute_loss refactor will change loss value (reduction + sample_weights signature extension).",
+      "pinned_by_phase": "0.3"
+    }
+  },
+  "forward_pass_populated_at_utc": "2026-04-21T01:22:55.361577+00:00",
   "generated_at_utc": "2026-04-20T00:00:00+00:00",
   "generator": "phase0_benchmark/generate.py",
   "mbo": {

@@ -9,6 +9,65 @@ cross-module **contract schema version** is tracked independently via
 
 ---
 
+## [2.2.1] — 2026-04-21
+
+Phase V.A.1 — Activate Phase 0 forward-pass regression detection. Non-breaking
+PATCH: pure fixture content addition + populate-script SSoT alignment. Contract
+schema version unchanged at 2.2.
+
+### Added (Phase V.A.1, 2026-04-21)
+
+- **`tests/fixtures/phase0_benchmark/golden_values.json::forward_pass`** — now
+  populated with two HMHP-family entries (previously `{}`, so
+  `lob-models/tests/integration/test_phase0_forward_pass.py` silently
+  `pytest.skip`ped its 14 regression tests):
+    - `hmhp_classifier`: pinned classifier goldens — `logits_shape`/`logits_hash`,
+      `horizon_logits_hashes` for horizons `[10, 60, 300]`, `agreement_hash`,
+      `confidence_hash`, and `compute_loss.value` + per-horizon components
+      (tolerance `rel=1e-6`).
+    - `hmhp_regressor`: parallel goldens — `horizon_predictions_hashes` + loss
+      components (regression head; no argmax).
+    - Both pinned at HEAD `2026-04-20` (pre-Phase-I.A / pre-Phase-I.B state;
+      `pinned_by_phase: "0.3"`). Phase I.A FRESH-2 fix will intentionally drift
+      `agreement_hash` + add `nonzero_fraction`; Phase I.B `compute_loss`
+      refactor (reduction + sample_weights + pooling) will drift loss values —
+      both updates flow through the populate script + CHANGELOG delta, not
+      silent golden overwrites. TLOB/XGBoost/DeepLOB/MLPLOB goldens deferred
+      to Phase 0.5 per `populate_forward_pass_goldens.py:24-28`.
+- **`forward_pass_populated_at_utc`** top-level timestamp — distinct from
+  `generated_at_utc` (fixture generation). Operators triaging a drift can tell
+  fixture bytes from goldens bytes apart.
+
+### Changed (Phase V.A.1, 2026-04-21)
+
+- **`lob-models/tests/integration/populate_forward_pass_goldens.py`** — final
+  JSON write now delegates to `hft_contracts.atomic_io.atomic_write_json`
+  (previously `golden_path.write_text(json.dumps(...))`, non-atomic). Resolves
+  the v3.0-audit discrepancy: partial-file corruption on SIGKILL / Ctrl-C
+  mid-write could previously leave an inconsistent goldens file that tests
+  would then consume as truth. The SSoT also enforces canonical
+  `sort_keys=True` + trailing-newline convention so goldens are diff-stable
+  across regeneration. Matches the pattern used by `ExperimentRecord.save()`,
+  `FeatureImportanceArtifact.save()`, and the feature-sets writer. No behavior
+  change on happy path; failure mode is now "original bytes retained" rather
+  than "partial write committed".
+
+### Verification
+
+- `lob-models/tests/integration/test_phase0_forward_pass.py`: **14 / 14 PASS**
+  locally (Darwin ARM64, Python 3.14.2, PyTorch 2.x with
+  `torch.use_deterministic_algorithms(True, warn_only=True)`). Tests were
+  previously SKIP'd. Cross-platform drift risk (Mac ARM → Linux x86 CI)
+  flagged in Phase V risk table as "Low likelihood / HIGH impact";
+  escalation-to-tolerance-based-comparison is the pivot path if CI surfaces a
+  bit-exact-hash mismatch.
+- `hft-contracts` full suite: **467 pass, 3 warnings, 0 regressions** (vs 465
+  at Phase II v2.22.1 close — the +2 delta is re-collected parametrized tests,
+  not new tests; no test files were added or modified in hft-contracts for
+  V.A.1).
+
+---
+
 ## [2.2.0] — 2026-04-20
 
 First public release on the GitHub remote
