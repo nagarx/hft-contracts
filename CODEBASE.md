@@ -1,6 +1,12 @@
 # hft-contracts — Codebase Reference
 
-> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 335 authoring / ~330 + 5 skip fresh-clone | **Last Updated**: 2026-04-20 (Phase 8C-α Integration Close-Out — `FeatureImportanceArtifact.__post_init__` WARN on missing `feature_set_ref` for `method="permutation"` (architect-Q9.1; exploratory runs still allowed); preserves Stage C.2 + 2-round post-audit: v2 schema + `ExperimentRecord.artifacts[]` + `INDEX_SCHEMA_VERSION=1.3.0` + `block_length_samples` rename + `from_dict` migration + v1/v2 content-hash divergence lock + `compute_stability` in `__all__` + (0,0)→0.0)
+> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 490 passing (post Phase V.A.4 + V.1 L1.2 ExperimentRecord extensions) | **Last Updated**: 2026-04-21
+>
+> **Phase V.A.4 SHIPPED (2026-04-21, commit `a0fa3d2`)** — New `ExperimentRecord.compatibility_fingerprint: Optional[str]` field (64-hex SHA-256 validated via `CONTENT_HASH_RE`). Surfaces cross-experiment comparability: every record produced against the same CompatibilityContract version has the same fingerprint. Projected into `index_entry()` for `hft-ops ledger list --compatibility-fp <hex>` filter. `INDEX_SCHEMA_VERSION` bumped 1.3.0 → **1.4.0** (MINOR additive — triggers envelope auto-rebuild on existing ledgers per Phase 8B mechanism).
+>
+> **Phase V.1 L1.2 SHIPPED (2026-04-21, commit `0efabe0`)** — New `ExperimentRecord.signal_export_output_dir: Optional[str]` field (run-time-captured absolute path from `SignalExportRunner.run`). Closes Agent 2 H1 manifest-move-resilience gap — `hft-ops sweep compare` adapter prefers this stored path over manifest re-parse. Record-level only (NOT projected into `index_entry()` — access pattern is `ledger.get(exp_id)` full load). 4 new regression tests: default-None, round-trip, index-exclusion lock, pre-V.1 backward-compat via `from_dict` absent-key filter.
+>
+> **Previously** (Phase 8C-α Integration Close-Out 2026-04-20) — `FeatureImportanceArtifact.__post_init__` WARN on missing `feature_set_ref` for `method="permutation"` (architect-Q9.1; exploratory runs still allowed); preserves Stage C.2 + 2-round post-audit: v2 schema + `ExperimentRecord.artifacts[]` + `block_length_samples` rename + `from_dict` migration + v1/v2 content-hash divergence lock + `compute_stability` in `__all__` + (0,0)→0.0.
 
 ## Role in the Pipeline
 
