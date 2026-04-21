@@ -50,6 +50,59 @@ Golden values are PINNED. Any change must be explicit:
    Pin the environment or, if unavoidable, regenerate + explicitly version the acceptance
    threshold.
 
+### Forward-pass tensor tolerance (V.A.1 REDESIGN, 2026-04-21)
+
+The `forward_pass/*.npz` reference tensors (HMHP classifier + HMHP regressor) are
+consumed by `lob-models/tests/integration/test_phase0_forward_pass.py` via
+`torch.testing.assert_close(observed, expected, rtol=1e-4, atol=1e-6)`. The tolerance
+is calibrated to be PLATFORM-DRIFT-TOLERANT (Mac ARM64 Accelerate BLAS vs Linux x86
+OpenBLAS) while still catching any real Phase I.B.2-class math change.
+
+**ULP-count rationale** (documenting the calibration):
+
+For the pinned HMHP config (`hidden_dim=16`, `n_encoder_layers=1`, `T=20`, `N=10`,
+horizons `[10, 60, 300]`), the forward pass is a chain of ~20 FMA operations per
+output element (1 transformer layer × attention + MLP + softmax). Empirical
+float32 ULP drift between BLAS implementations is 1-4 ULP per op = ~5e-7 relative
+per op. Non-associative reductions (softmax, LayerNorm) add 3-5 ULP. Realistic
+maximum BLAS-induced drift on this chain: **~5e-6 relative**.
+
+`rtol=1e-4` is **20× above** the BLAS ceiling — a safe margin that tolerates
+cross-platform execution. It is simultaneously **~1000× below** typical Phase
+I.B.2 math changes:
+- Pooling swap (last-timestep → mean-pool): logits shift ~10-30% relative on
+  affected elements.
+- FRESH-2 sign-fix: agreement tensor changes ~100% on affected samples.
+
+Both are >> 1e-4, so real math changes still fail loudly even with the safety
+margin. `atol=1e-6` is an absolute floor for near-zero values (cross-platform
+ULP-scale).
+
+**Tightening runway**: consider `rtol=1e-5` (still 2× above BLAS ceiling) after
+1 week of green CI on the current tolerance. Tighter rtol catches smaller drifts
+earlier without false-positives.
+
+**Scalar compute_loss tolerance**: separate from tensor tolerance. Uses
+`pytest.approx(rel=1e-6)` which was shown empirically (V.A.1 initial CI, 2026-04-21)
+to be cross-platform stable on these scalar reductions. Keep at `rel=1e-6`.
+
+**Storage layout** (V.A.1 REDESIGN 2026-04-21):
+
+```
+phase0_benchmark/
+├── forward_pass/                # NEW directory
+│   ├── hmhp_classifier.npz      # logits, horizon_logits_{10,60,300}, agreement, confidence
+│   └── hmhp_regressor.npz       # horizon_predictions_{10,60,300}, agreement
+└── golden_values.json           # metadata: tensors_file pointer + tensor_keys + tolerance + compute_loss scalars
+```
+
+`golden_values.json::forward_pass.<model>.forward` no longer stores SHA-256
+hashes. Instead, it stores a **file pointer** (`tensors_file`), a **key list**
+(`tensor_keys`), **shapes** (`tensor_shapes`), **dtypes** (`tensor_dtypes`),
+and **tolerance** (`tolerance: {rtol, atol}`). The test loads tensors via
+`np.load(fixture_dir / tensors_file)` and delegates comparison to
+`torch.testing.assert_close`.
+
 ## Golden-values schema
 
 ```jsonc
