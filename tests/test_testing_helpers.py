@@ -118,14 +118,27 @@ class TestRequireMonorepoRoot:
                 "nonexistent/second/subpath",     # missing
             )
 
-    def test_skip_message_cites_missing_subpath(self):
-        """Skip message includes the failing subpath for triage visibility."""
+    def test_skip_message_is_actionable(self):
+        """Skip message is non-empty and mentions ``HFT-pipeline-v2`` or the
+        missing subpath — so triage can tell which invariant fired.
+
+        CI vs dev divergence note: on CI (standalone hft-contracts checkout)
+        the FIRST skip fires ("monorepo root not found") — the message
+        mentions ``HFT-pipeline-v2``. On dev (monorepo present but subpath
+        absent) the SECOND skip fires — the message cites the missing
+        subpath. We accept either; what matters is that the message helps
+        a developer understand why the test skipped."""
         try:
             require_monorepo_root("this/path/is/not/here.missing")
         except pytest.skip.Exception as exc:
-            assert "this/path/is/not/here.missing" in str(exc), (
-                f"Skip message should cite the specific missing subpath; "
-                f"got: {exc!s}"
+            msg = str(exc)
+            assert len(msg) > 50, f"Skip message should be actionable; got: {msg!r}"
+            # Either the monorepo-absent path OR the subpath-missing path must fire.
+            cites_monorepo = "HFT-pipeline-v2" in msg
+            cites_subpath = "this/path/is/not/here.missing" in msg
+            assert cites_monorepo or cites_subpath, (
+                f"Skip message should mention either the monorepo name or "
+                f"the missing subpath. Got: {msg!r}"
             )
         else:
             pytest.fail("require_monorepo_root should have skipped")
