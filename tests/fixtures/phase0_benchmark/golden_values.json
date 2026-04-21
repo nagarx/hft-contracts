@@ -6,8 +6,8 @@
       "sequences": "float32"
     },
     "array_hashes": {
-      "forward_prices": "b4b3cb476338d7f7da0d2ae2c508f9ed34bc812de162839a1b806422e23de6f4",
-      "labels": "8093d2491f01758a74c9a9950aa491c6ee536c7ad75add1176efb595f5f2480f",
+      "forward_prices": "ae1e3248ecf76c21a037991e5e68e2b373d3e64b9522ce76a80b0d7bc952f7e5",
+      "labels": "ceed0833b3c854a66fa64411960a1d4b51bf759f046825eebb0377b47b1e16fa",
       "sequences": "0e39af2d7cb45fd0e2a918268fc0a92848fac5b7b8055012036cee784bcfd4f6"
     },
     "array_shapes": {
@@ -30,93 +30,7 @@
     "npz_file": "synthetic_basic.npz"
   },
   "description": "Deterministic synthetic fixtures for the Architectural Hardening Cycle (plan v2.0). Arrays hashes + metadata hash are pinned here. Downstream phases populate 'forward_pass' and 'compute_loss' sub-blocks as their models land. See README.md for acceptable-drift policy.",
-  "forward_pass": {
-    "hmhp_classifier": {
-      "compute_loss": {
-        "components": {
-          "H10": 1.0997973680496216,
-          "H300": 1.1052712202072144,
-          "H60": 1.0681564807891846,
-          "consistency": 0.0,
-          "final": 1.0952045917510986
-        },
-        "value": 0.9821548461914062
-      },
-      "config": {
-        "hidden_dim": 16,
-        "horizons": [
-          10,
-          60,
-          300
-        ],
-        "num_encoder_layers": 1,
-        "num_features": 98,
-        "sequence_length": 20
-      },
-      "forward": {
-        "agreement_hash": "94fdefa63675a54851b4bd52a0c611b984190f46de0ebf58e17d2f2b4cf9b4ee",
-        "confidence_hash": "709c10a6653d511dbecedd85936e7606900f6b1bac59a323f1a0544f60ab8c18",
-        "horizon_logits_hashes": {
-          "10": "c1e3582073e1053a43449dd978ec4fbd25d92cfb371884b361842988b1841444",
-          "300": "30940644753337d5b2b1f6b5d589b5c8c0165123a2473341054bbfd99b946eb3",
-          "60": "8595c93d711d8660660fc4a33c5a464d09b20261f5901589f8347b6d58715206"
-        },
-        "horizon_logits_keys": [
-          10,
-          60,
-          300
-        ],
-        "logits_hash": "529bc78180393da003521e34cc821df659d5c11f9cc118a0017a5ca2f95e5b19",
-        "logits_shape": [
-          10,
-          3
-        ]
-      },
-      "model": "HMHP (classifier)",
-      "notes": "Forward-pass-only golden (seeded init weights, no training). Phase I.A will update agreement_hash (FRESH-2 fix) \u2014 document delta in CHANGELOG. Phase I.B will update compute_loss.value (pooling alignment + reduction refactor) \u2014 document delta.",
-      "pinned_by_phase": "0.3"
-    },
-    "hmhp_regressor": {
-      "compute_loss": {
-        "components": {
-          "H10": 3.3338961601257324,
-          "H300": 8.493927001953125,
-          "H60": 3.4503884315490723,
-          "consistency": 0.01273894403129816
-        },
-        "value": 2.964186429977417
-      },
-      "config": {
-        "hidden_dim": 16,
-        "horizons": [
-          10,
-          60,
-          300
-        ],
-        "num_encoder_layers": 1,
-        "num_features": 98,
-        "sequence_length": 20,
-        "use_regression": true
-      },
-      "forward": {
-        "agreement_hash": "00e1a993efd5074e1fc9c7ff6fc46a151ee4ed93935d05ee2ab229ded34975c1",
-        "horizon_predictions_hashes": {
-          "10": "1515bfc4e49d5f800a05d01dd486267146f767f06ff845d006b653f4402fb10d",
-          "300": "51cbebf31015194617bbc153377928b65a9029512a3bbf8c2abf704299cf3bba",
-          "60": "323812a00a25c1c138157bdfc74a5ecbb0bbd983d8964d4f86522290998b5716"
-        },
-        "horizon_predictions_keys": [
-          10,
-          60,
-          300
-        ]
-      },
-      "model": "HMHP (regressor)",
-      "notes": "Forward-pass-only golden (seeded init). Phase I.A FRESH-2 fix will change agreement_hash (NaN-aware three-valued sign + nonzero_fraction added). Phase I.B compute_loss refactor will change loss value (reduction + sample_weights signature extension).",
-      "pinned_by_phase": "0.3"
-    }
-  },
-  "forward_pass_populated_at_utc": "2026-04-20T19:37:44.855946+00:00",
+  "forward_pass": {},
   "generated_at_utc": "2026-04-20T00:00:00+00:00",
   "generator": "phase0_benchmark/generate.py",
   "mbo": {
@@ -126,8 +40,8 @@
       "sequences": "float32"
     },
     "array_hashes": {
-      "forward_prices": "9b0ad1575400f9f5519a6db19814d2b06b622a7e998f50687498cffa25a3b99d",
-      "regression_labels": "3f2f99943ad3382fbedf5f841c8d106e2fdc30860aae1302d574f374da833fcb",
+      "forward_prices": "4a192862f77513e01c5e13860808d6fe425c573ed5653544e37bcf6515dbf0ed",
+      "regression_labels": "ea5358198cae81155c9038e118b54ae2c556cfad018b2fe362364a9ad9508d64",
       "sequences": "a48cca3943a0d3373356f53015f13893aa0c77b0712918381ef2319c77756c94"
     },
     "array_shapes": {

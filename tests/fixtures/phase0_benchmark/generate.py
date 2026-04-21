@@ -21,6 +21,32 @@ Fixtures produced:
   - golden_values.json                — populated by downstream phase tests
 
 Seed convention: seed=42 everywhere. numpy.random.default_rng(42) is the canonical RNG.
+
+## Cross-version + cross-platform determinism contract
+
+The committed fixture hashes are expected to match on ANY environment with
+numpy>=1.26 (the lower bound pinned in pyproject.toml), on any hardware, on any
+CPython 3.10+ version. The only numpy primitives this generator uses are those
+with a **frozen implementation** that has been stable since numpy 1.17:
+
+  - ``np.random.Generator.standard_normal``  — Marsaglia ziggurat (2000), frozen
+  - ``np.cumsum``, ``np.abs``, ``np.zeros``  — pure-numpy, deterministic
+  - Scalar arithmetic (``+``, ``*``)          — IEEE-754 guaranteed
+
+Explicitly AVOIDED (have drifted between numpy minor versions):
+  - ``rng.standard_t(df=...)``    — composition of gamma + normal; changed across versions
+  - ``rng.standard_gamma(...)``   — Marsaglia-Tsang method but internal order varies
+  - ``rng.standard_cauchy(...)``  — tangent-based, platform-sensitive
+  - BLAS-backed reductions on large arrays (``.mean()``, ``@``) — SIMD-order-sensitive
+
+Rationale: this is synthetic TEST data, not real market data. The fixture's
+consumers (Phase 0 forward-pass tests) assert bit-hash determinism, not
+distributional properties — so losing Student-t heavy tails in exchange for
+cross-version bit-stability is strictly a correctness improvement.
+
+If a future primitive is added to this file, the contract above MUST be
+re-audited. ``tests/test_phase0_fixtures.py::TestGeneratorDeterminismContract``
+locks this contract with a grep-style static check.
 """
 
 from __future__ import annotations
@@ -80,9 +106,15 @@ def generate_mbo_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     # Spread_bps (index 42): small positive. Real values typically 0.5-10 bps.
     sequences[:, :, 42] = np.abs(sequences[:, :, 42]) + 0.8
 
-    # Regression labels: [N, H] float64 bps. Heavy-tail via Student-t-ish shape.
-    t_samples = rng.standard_t(df=3.0, size=(N_SAMPLES, len(MBO_HORIZONS)))
-    regression_labels = (t_samples * 5.0).astype(np.float64)
+    # Regression labels: [N, H] float64 bps. Gaussian synthetic (std ≈ 5 bps).
+    # Uses ``standard_normal`` (frozen ziggurat, stable across numpy 1.17+)
+    # instead of ``standard_t`` (composition method, drifts across numpy versions).
+    # Tests assert bit-hash identity, not distributional shape — stability over
+    # heavy-tail fidelity is the correct trade for synthetic fixtures. See module
+    # docstring for the full determinism contract.
+    regression_labels = (
+        rng.standard_normal(size=(N_SAMPLES, len(MBO_HORIZONS))) * 5.0
+    ).astype(np.float64)
 
     # Forward prices: [N, smoothing_offset + max_H + 1] float64 USD.
     max_h = max(MBO_HORIZONS)
@@ -179,9 +211,11 @@ def generate_basic_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     sequences[:, :, 0] = np.abs(sequences[:, :, 0]) + 100.0  # pseudo mid_price
     sequences[:, :, 1] = np.abs(sequences[:, :, 1]) + 0.8    # pseudo spread_bps
 
-    # Point-return labels: [N, H=8] float64 bps
-    t_samples = rng.standard_t(df=4.0, size=(N_SAMPLES, len(BASIC_HORIZONS)))
-    labels = (t_samples * 3.0).astype(np.float64)
+    # Point-return labels: [N, H=8] float64 bps. Gaussian synthetic (std ≈ 3 bps).
+    # Uses ``standard_normal`` for cross-version determinism — see module docstring.
+    labels = (
+        rng.standard_normal(size=(N_SAMPLES, len(BASIC_HORIZONS))) * 3.0
+    ).astype(np.float64)
 
     # Forward prices for BASIC: [N, max_H + 1]
     max_h = max(BASIC_HORIZONS)

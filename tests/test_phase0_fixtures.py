@@ -288,3 +288,98 @@ class TestRegenerationDeterminism:
         assert a["basic"]["array_hashes"] == b["basic"]["array_hashes"]
         assert a["mbo"]["metadata_sha256"] == b["mbo"]["metadata_sha256"]
         assert a["basic"]["metadata_sha256"] == b["basic"]["metadata_sha256"]
+
+
+class TestGeneratorDeterminismContract:
+    """Static contract: generate.py MUST use only numpy primitives with frozen
+    cross-version / cross-platform bit-stability.
+
+    Any future edit that introduces an unstable primitive (``standard_t``,
+    ``standard_gamma``, ``standard_cauchy``, BLAS-backed reductions on large
+    arrays, etc.) silently breaks CI on a different numpy-version + platform
+    combination than where the fixture was committed.
+
+    This static grep-style check fails loud at code review rather than waiting
+    for the post-merge CI run. The explicitly-AVOIDED list in the module
+    docstring is the SSoT; this test mirrors it.
+
+    Rationale (plan v2.0, §Architectural Invariants #6 "Contract Enforcement
+    Pattern"): every cross-environment contract requires (a) declaration
+    (docstring), (b) producer-side validator (generator itself), (c) consumer-
+    side validator (this test). Closes the class of silent-CI-breakage-on-
+    different-numpy-version bugs.
+    """
+
+    # Primitives documented as NOT bit-stable across numpy versions. Adding
+    # one of these to generate.py SHOULD fail CI immediately.
+    _FORBIDDEN_PRIMITIVES = (
+        "standard_t",
+        "standard_gamma",
+        "standard_cauchy",
+        "standard_exponential",  # conservative: cross-version-stable for default_rng only
+        ".mean(",  # BLAS-backed reductions: SIMD-order-sensitive on large arrays
+        ".matmul(",
+        "@ ",  # matmul operator (conservative glob — would also flag "@staticmethod" inside strings,
+        # but generator has no decorators on reduction paths)
+    )
+
+    def test_generator_uses_only_stable_primitives(self):
+        """Static scan of generate.py source. No forbidden primitive appears
+        outside comments/docstrings.
+
+        Strategy: for each line in the source, strip line-comments + skip
+        lines that are clearly inside a string literal (triple-quoted block
+        comments). Then check for forbidden substrings.
+        """
+        gen_path = FIXTURE_DIR / "generate.py"
+        source = gen_path.read_text().splitlines()
+
+        in_triple_string = False
+        triple_delim = None
+        offenders: list[tuple[int, str, str]] = []
+
+        for lineno, line in enumerate(source, start=1):
+            stripped = line.strip()
+            # Track triple-quoted string blocks (module docstring + function docstrings).
+            if in_triple_string:
+                if triple_delim in line:
+                    in_triple_string = False
+                    triple_delim = None
+                continue  # Inside docstring — skip.
+            if stripped.startswith('"""') or stripped.startswith("'''"):
+                delim = stripped[:3]
+                # Single-line triple-quote (open and close on same line)?
+                rest = stripped[3:]
+                if delim in rest:
+                    continue  # whole thing on one line — skip
+                in_triple_string = True
+                triple_delim = delim
+                continue
+            # Strip inline comment.
+            code = line.split("#", 1)[0]
+            for forbidden in self._FORBIDDEN_PRIMITIVES:
+                if forbidden in code:
+                    offenders.append((lineno, forbidden, line.rstrip()))
+
+        assert not offenders, (
+            "Phase 0 generate.py uses a forbidden unstable primitive. "
+            "Each listed primitive has drifted between numpy minor versions in the "
+            "past (see module docstring 'Explicitly AVOIDED' list). If you must use "
+            "one, document the numpy version pin + fixture-regeneration policy FIRST."
+            f"\n\nOffenders:\n" + "\n".join(
+                f"  line {n}: forbidden={f!r}  source: {s}" for n, f, s in offenders
+            )
+        )
+
+    def test_contract_docstring_mentions_avoidance(self):
+        """The module docstring must enumerate the AVOIDED primitives so the
+        contract is discoverable during code review (not just in this test).
+        """
+        gen_path = FIXTURE_DIR / "generate.py"
+        source = gen_path.read_text()
+        # Minimal discoverability invariant — must mention the key categories.
+        assert "standard_t" in source, "Docstring must call out standard_t as forbidden"
+        assert "Explicitly AVOIDED" in source or "avoided" in source.lower(), (
+            "Docstring must have an Explicitly-AVOIDED-primitives section"
+        )
+        assert "standard_normal" in source, "Docstring must call out stable primitive"

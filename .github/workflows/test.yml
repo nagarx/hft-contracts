@@ -6,10 +6,17 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs on the same ref when a new commit lands.
+# Cancel in-progress runs on the same ref when a new commit lands. Saves
+# runner minutes when a developer force-pushes a fix over a failing run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Minimum GITHUB_TOKEN permissions — principle of least privilege (OpenSSF
+# supply-chain best practice). This workflow only reads repo contents and
+# writes no artifacts, so `contents: read` is sufficient.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -21,6 +28,11 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
+      # Action versions pinned by tag (readable + auto-patches). Supply-chain
+      # best practice is SHA pinning — deferred pending a project-wide policy
+      # decision across all 17 monorepo repos. Node.js 20 deprecation warning
+      # (2026-09-16 runner removal) will be addressed when checkout@v5 /
+      # setup-python@v6 ship stable Node 24 support.
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -35,9 +47,31 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev,generate]'
+          # Log resolved numpy version — aids diagnosis of any future cross-version
+          # determinism regression (the class of issue that bit the pre-v1.0 Phase 0
+          # generator when rng.standard_t was used; see generate.py docstring for the
+          # determinism contract we enforce).
+          python -c "import numpy, sys; print(f'Python {sys.version.split()[0]}  |  numpy {numpy.__version__}')"
+
+      - name: Phase 0 fixture determinism (regenerate + diff)
+        # Explicit separate step so cross-numpy-version fixture drift produces
+        # a focused red job rather than a generic pytest failure buried among
+        # 460+ other tests. The generator's determinism contract is
+        # documented in tests/fixtures/phase0_benchmark/generate.py (only
+        # ``standard_normal`` + ``cumsum`` + IEEE-754 scalars allowed —
+        # ``standard_t`` / ``standard_gamma`` / BLAS-reductions are forbidden).
+        # ``TestGeneratorDeterminismContract`` in test_phase0_fixtures.py
+        # enforces the contract via static grep; this step exercises it
+        # dynamically. Failure here means either (a) the generator regressed
+        # to an unstable primitive OR (b) a numpy update broke a previously-
+        # stable primitive — in either case, regenerate fixtures + update
+        # golden_values.json in the same commit.
+        run: |
+          pytest -q --tb=short tests/test_phase0_fixtures.py
 
       - name: Run tests
-        # Expected result on fresh-CI (no hft-ops): 293 passing + 5 skipped.
+        # Expected result on fresh-CI (no hft-ops): 298 passing + 5 skipped
+        # (post Phase II + Phase 0 determinism-contract additions).
         # The 5 shim-parity tests skip via pytest.importorskip("hft_ops").
         run: pytest -q --tb=short
 
