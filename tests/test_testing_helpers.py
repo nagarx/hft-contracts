@@ -183,7 +183,19 @@ class TestRequireMonorepoRoot:
         )
 
     def test_reason_prefix_included_in_skip_message(self):
-        """V.A.0 audit F11: reason_prefix kwarg prepends context to skip."""
+        """V.A.0 audit F11: reason_prefix kwarg prepends context to skip.
+
+        CI vs dev divergence (mirrors `test_skip_message_is_actionable`):
+        - On dev (monorepo present): subpath-missing skip fires, message
+          cites the missing subpath.
+        - On CI (monorepo absent): monorepo-absent skip fires FIRST,
+          never reaches subpath check.
+
+        Both paths apply the ``reason_prefix`` via the same ``_skip``
+        helper, so regardless of which skip path fires, the prefix
+        prepends correctly. Verify ONLY that behavior — don't assert on
+        specific skip-path content (which varies by environment).
+        """
         context = "Integration tests require data/exports layout"
         with pytest.raises(pytest.skip.Exception) as exc_info:
             require_monorepo_root(
@@ -191,14 +203,14 @@ class TestRequireMonorepoRoot:
                 reason_prefix=context,
             )
         msg = str(exc_info.value)
-        assert context in msg, (
-            f"Skip message should prepend the reason_prefix context; "
+        assert msg.startswith(context + ":"), (
+            f"Skip message should start with `{context!r}:` prefix + space; "
             f"got: {msg!r}"
         )
-        # Generic message should still be present (reason_prefix PREPENDS,
-        # not replaces):
-        assert "nonexistent/subpath" in msg, (
-            f"Generic message should follow reason_prefix; got: {msg!r}"
+        # A non-trivial base message should follow the prefix + colon + space
+        suffix = msg[len(context) + 2 :]  # skip "context: " (colon + space)
+        assert len(suffix) > 30, (
+            f"Base skip message should follow the prefix; got suffix: {suffix!r}"
         )
 
     def test_no_reason_prefix_omits_prefix(self):
@@ -209,4 +221,9 @@ class TestRequireMonorepoRoot:
         # No colon-based prefix pattern at the start
         assert not msg.startswith(":"), (
             f"No-prefix skip should not start with bare colon; got: {msg!r}"
+        )
+        # Message should still be non-trivial
+        assert len(msg) > 50, (
+            f"Skip message should be actionable regardless of prefix; "
+            f"got: {msg!r}"
         )
