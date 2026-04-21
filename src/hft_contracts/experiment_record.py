@@ -219,6 +219,35 @@ class ExperimentRecord:
     # string "" in the index (graceful degradation for ledger queries).
     compatibility_fingerprint: Optional[str] = None
 
+    # Phase V.1 L1.2 (2026-04-21): resolved ABSOLUTE path to the signal-export
+    # output directory captured at RUN TIME (not re-resolved from the manifest
+    # post-hoc). Closes Agent 2 H1 manifest-move-resilience gap surfaced by
+    # the Phase V post-audit cross-cutting review.
+    #
+    # Without this field, ``hft_ops.ledger.statistical_compare._resolve_signal_dir``
+    # must re-load the manifest YAML + re-resolve variable substitutions to
+    # find the signal files — fragile if the monorepo is moved OR the
+    # manifest is edited post-run OR variable-substitution context is no
+    # longer resolvable at query time. With this field, consumers can trust
+    # the run-time-resolved absolute path for the lifetime of the record.
+    #
+    # None iff: (a) signal_export stage was disabled for this experiment
+    # (training-only or dry-run), OR (b) the stage ran but did not set
+    # ``output_dir`` on the SignalExportStage config. The cli.py attachment
+    # logic only populates this when BOTH conditions are satisfied —
+    # graceful degradation, no silent corruption.
+    #
+    # Query pattern: ``pathlib.Path(record.signal_export_output_dir)``.
+    # This field is an OBSERVATION (set post-stage) and MUST NOT affect
+    # ``dedup.compute_fingerprint`` — same invariant as ``gate_reports`` /
+    # ``artifacts`` / ``compatibility_fingerprint`` / ``cache_info``.
+    #
+    # Not projected into ``index_entry()`` — the path is an implementation
+    # detail used by the statistical-compare adapter + future tooling; not
+    # a user-facing filter axis. Loading the full record via
+    # ``ExperimentLedger.get(exp_id)`` is the access pattern.
+    signal_export_output_dir: Optional[str] = None
+
     provenance: Provenance = field(default_factory=Provenance)
     contract_version: str = ""
 

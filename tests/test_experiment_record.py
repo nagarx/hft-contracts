@@ -440,6 +440,46 @@ class TestIndexEntry:
         entry = r.index_entry()
         assert entry["retroactive"] is True
 
+    # -------------------------------------------------------------------------
+    # Phase V.1 L1.2 (2026-04-21): signal_export_output_dir field (Agent 2 H1
+    # manifest-move-resilience fix). Not projected into index_entry() —
+    # record-level only, accessed via ledger.get(exp_id).
+    # -------------------------------------------------------------------------
+
+    def test_signal_export_output_dir_defaults_to_none(self):
+        """Dataclass default: absent signal_export OR no output_dir set →
+        None. Matches the pattern of other optional reference fields."""
+        r = ExperimentRecord()
+        assert r.signal_export_output_dir is None
+
+    def test_signal_export_output_dir_round_trip(self):
+        """Absolute-path string survives to_dict → from_dict unchanged."""
+        path_str = "/Users/knight/code_local/HFT-pipeline-v2/outputs/experiments/foo/signals/test"
+        r = ExperimentRecord(signal_export_output_dir=path_str)
+        r2 = ExperimentRecord.from_dict(r.to_dict())
+        assert r2.signal_export_output_dir == path_str
+
+    def test_signal_export_output_dir_not_in_index(self):
+        """Record-level field only — NOT projected into index_entry()
+        (path is an implementation detail, not a user-facing filter axis).
+        Locks the architectural decision that consumers access via the
+        full record (ledger.get), not the lightweight index."""
+        r = ExperimentRecord(signal_export_output_dir="/some/path")
+        entry = r.index_entry()
+        assert "signal_export_output_dir" not in entry, (
+            f"signal_export_output_dir should NOT be in index_entry(); "
+            f"found in: {list(entry.keys())}"
+        )
+
+    def test_signal_export_output_dir_backward_compat_absent_key(self):
+        """Pre-V.1.L1.2 records saved without the field deserialize
+        gracefully with signal_export_output_dir=None."""
+        data = ExperimentRecord(name="legacy_experiment").to_dict()
+        # Simulate a pre-V.1.L1.2 JSON record by stripping the field
+        data.pop("signal_export_output_dir", None)
+        r = ExperimentRecord.from_dict(data)
+        assert r.signal_export_output_dir is None
+
 
 class TestClassificationTestMetricsWhitelist:
     """Phase 7 Stage 7.4 Round 5 item C1 (2026-04-20): whitelist must
