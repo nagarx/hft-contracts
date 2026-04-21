@@ -215,6 +215,7 @@ class TestIndexEntryCompleteness:
             "cache_info",              # Phase 8A.0 — extraction-cache observability
             "sweep_failure_info",      # Phase 8A.1 — parallel-sweep failure taxonomy
             "artifact_kinds",          # Phase 8C-α C.2 — post-training artifact kinds
+            "compatibility_fingerprint",  # Phase V.A.4 — Signal-boundary compatibility trust column
         }
         actual_top_level = set(projection.keys())
 
@@ -222,8 +223,8 @@ class TestIndexEntryCompleteness:
         removed = expected_top_level - actual_top_level
 
         assert not added and not removed, (
-            f"Phase 8B/8A.0/8A.1/8C-α: index_entry() key-set drifted from "
-            f"INDEX_SCHEMA_VERSION=1.3.0 golden. Added: {sorted(added)}; "
+            f"Phase 8B/8A.0/8A.1/8C-α/V.A.4: index_entry() key-set drifted from "
+            f"INDEX_SCHEMA_VERSION=1.4.0 golden. Added: {sorted(added)}; "
             f"Removed: {sorted(removed)}. If this change is intentional, "
             f"(a) bump INDEX_SCHEMA_VERSION MINOR (or MAJOR for removals), "
             f"(b) update this test's expected_top_level set, "
@@ -366,6 +367,71 @@ class TestIndexEntry:
         entry = r.index_entry()
         # Empty dict (not None) for consistent schema
         assert entry["feature_set_ref"] == {}
+
+    # -------------------------------------------------------------------------
+    # Phase V.A.4 (2026-04-21): compatibility_fingerprint field + projection
+    # -------------------------------------------------------------------------
+
+    def test_compatibility_fingerprint_defaults_to_none(self):
+        """Dataclass default matches other optional reference fields."""
+        r = ExperimentRecord()
+        assert r.compatibility_fingerprint is None
+
+    def test_compatibility_fingerprint_round_trip(self):
+        """Valid 64-hex fingerprint survives to_dict → from_dict unchanged."""
+        hex_fp = "a" * 64
+        r = ExperimentRecord(compatibility_fingerprint=hex_fp)
+        r2 = ExperimentRecord.from_dict(r.to_dict())
+        assert r2.compatibility_fingerprint == hex_fp
+
+    def test_compatibility_fingerprint_in_index_valid(self):
+        """Valid 64-hex fingerprint projects as-is into index_entry."""
+        hex_fp = "b" * 64
+        r = ExperimentRecord(compatibility_fingerprint=hex_fp)
+        entry = r.index_entry()
+        assert entry["compatibility_fingerprint"] == hex_fp
+
+    def test_compatibility_fingerprint_empty_string_when_unset(self):
+        """None default → empty string "" in index (JSON schema consistency)."""
+        r = ExperimentRecord(compatibility_fingerprint=None)
+        entry = r.index_entry()
+        assert entry["compatibility_fingerprint"] == ""
+
+    def test_compatibility_fingerprint_malformed_coerced_to_empty(self):
+        """Non-64-hex values silently coerce to "" — graceful degradation
+        for poisoned records; matches the feature_set_ref.content_hash
+        gate pattern. Producer (hft-ops harvester) already validates via
+        CONTENT_HASH_RE, but this is defense-in-depth for records written
+        by non-standard paths (test fixtures, manual ledger edits, etc.)."""
+        for bad in [
+            "not-hex",                         # too short + invalid chars
+            "abc",                              # too short
+            "A" * 64,                           # uppercase — CONTENT_HASH_RE is lowercase-only
+            "a" * 63,                           # 63 chars, off-by-one
+            "a" * 65,                           # 65 chars, off-by-one
+            "gg" + "a" * 62,                    # non-hex chars
+            "",                                 # empty string
+        ]:
+            r = ExperimentRecord(compatibility_fingerprint=bad)
+            entry = r.index_entry()
+            assert entry["compatibility_fingerprint"] == "", (
+                f"Malformed fingerprint {bad!r} should coerce to empty "
+                f"string; got {entry['compatibility_fingerprint']!r}"
+            )
+
+    def test_index_schema_version_bumped_to_1_4_0(self):
+        """Phase V.A.4 adds compatibility_fingerprint to the index projection —
+        bumps INDEX_SCHEMA_VERSION MINOR 1.3.0 → 1.4.0 per SemVer additive
+        policy (root CLAUDE.md §Change-Coordination Checklist). hft-ops ledger
+        envelope auto-rebuild triggers on MAJOR.MINOR mismatch."""
+        from hft_contracts.experiment_record import INDEX_SCHEMA_VERSION
+
+        assert INDEX_SCHEMA_VERSION == "1.4.0", (
+            f"Expected INDEX_SCHEMA_VERSION='1.4.0' (Phase V.A.4 bump); "
+            f"got {INDEX_SCHEMA_VERSION!r}. If intentional, update this "
+            f"test + root CLAUDE.md Last-verified stamp + "
+            f"pipeline_contract.toml changelog entry."
+        )
 
     def test_retroactive_surfaced(self):
         r = ExperimentRecord(

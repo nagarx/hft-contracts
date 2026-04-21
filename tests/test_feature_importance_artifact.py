@@ -226,15 +226,19 @@ class TestExperimentRecordArtifactsField:
         assert entry["artifact_kinds"] == ["feature_importance"]
 
 
-class TestIndexSchemaVersion1_3_0:
-    """Phase 8C-α Stage C.2: version bump lock."""
+class TestIndexSchemaVersion1_4_0:
+    """Phase V.A.4 (2026-04-21): version bump lock. Was 1.3.0 after
+    Phase 8C-α Stage C.2 (``artifacts`` + ``artifact_kinds`` projection);
+    bumped to 1.4.0 by Phase V.A.4 which adds
+    ``ExperimentRecord.compatibility_fingerprint`` + its index_entry
+    projection."""
 
-    def test_index_schema_version_is_1_3_0(self):
+    def test_index_schema_version_is_1_4_0(self):
         from hft_contracts import INDEX_SCHEMA_VERSION
-        assert INDEX_SCHEMA_VERSION == "1.3.0", (
-            f"Expected INDEX_SCHEMA_VERSION='1.3.0' after Phase 8C-α "
-            f"Stage C.2 bump (added ``artifact_kinds`` projection + "
-            f"``artifacts`` field). Got {INDEX_SCHEMA_VERSION!r}."
+        assert INDEX_SCHEMA_VERSION == "1.4.0", (
+            f"Expected INDEX_SCHEMA_VERSION='1.4.0' after Phase V.A.4 "
+            f"bump (added ``compatibility_fingerprint`` field + index_entry "
+            f"projection). Got {INDEX_SCHEMA_VERSION!r}."
         )
 
     def test_feature_importance_schema_version_is_2(self):

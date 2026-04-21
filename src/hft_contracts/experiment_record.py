@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from hft_contracts.atomic_io import atomic_write_json
 from hft_contracts.provenance import Provenance
+from hft_contracts.signal_manifest import CONTENT_HASH_RE
 
 
 # -----------------------------------------------------------------------------
@@ -64,7 +65,7 @@ from hft_contracts.provenance import Provenance
 #
 # See root ``CLAUDE.md`` §Change-Coordination Checklist row
 # "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
-INDEX_SCHEMA_VERSION: str = "1.3.0"
+INDEX_SCHEMA_VERSION: str = "1.4.0"
 # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): additive MINOR bump for the
 # extraction-cache observability fields (``cache_hit``, ``cache_key``,
 # ``cache_seconds_saved``) surfaced via ``ExperimentRecord.cache_info`` and
@@ -185,6 +186,38 @@ class ExperimentRecord:
     # (that dict's implicit contract is values are SHA-256 hex; forcing a
     # structured reference into it would violate that).
     feature_set_ref: Optional[Dict[str, str]] = None
+
+    # Phase V.A.4 (2026-04-21): optional reference to the CompatibilityContract
+    # fingerprint that the trainer emitted into ``signal_metadata.json``.
+    # The contract's 11 shape-determining fields (contract_version,
+    # schema_version, feature_count, window_size, feature_layout,
+    # data_source, label_strategy_hash, calibration_method,
+    # primary_horizon_idx, horizons, normalization_strategy) are hashed via
+    # ``hft_contracts.canonical_hash`` to produce a 64-hex SHA-256 digest.
+    # This column makes the "trustworthy experiment" claim FALSIFIABLE at the
+    # ledger layer: ``hft-ops ledger list --compatibility-fp <hex>`` surfaces
+    # every experiment produced against a specific contract version.
+    #
+    # None iff: (a) trainer did not emit the compatibility block (pre-Phase-II
+    # legacy signal_metadata.json format), OR (b) hft-ops harvester could not
+    # read signal_metadata.json (missing file, malformed JSON), OR (c) the
+    # stored value did not match the 64-hex SHA-256 regex ``CONTENT_HASH_RE``
+    # (fail-loud rejection of poisoned input; same pattern as feature_set_ref
+    # validation).
+    #
+    # Query pattern: ``record.compatibility_fingerprint == "abc123..."``.
+    # Filter via ``ledger.filter(compatibility_fingerprint=...)`` or
+    # ``hft-ops ledger list --compatibility-fp <hex>``.
+    #
+    # Fingerprint stability: this field IS an observation (set post-training
+    # by the harvester). MUST NOT affect ``dedup.compute_fingerprint`` — the
+    # fingerprint is a property OF the experiment, not an input TO it. Same
+    # invariant as ``gate_reports`` / ``artifacts`` / ``cache_info``.
+    #
+    # Index projection: ``index_entry()`` projects this field with 64-hex
+    # validation via ``CONTENT_HASH_RE``; malformed values surface as empty
+    # string "" in the index (graceful degradation for ledger queries).
+    compatibility_fingerprint: Optional[str] = None
 
     provenance: Provenance = field(default_factory=Provenance)
     contract_version: str = ""
@@ -496,6 +529,21 @@ class ExperimentRecord:
             # `hft-ops ledger list --feature-set <name>` filtering. Empty dict
             # (not None) when unset, matches other Dict default conventions.
             "feature_set_ref": self.feature_set_ref or {},
+            # Phase V.A.4 (2026-04-21): surface compatibility_fingerprint
+            # in index for `hft-ops ledger list --compatibility-fp <hex>`
+            # filtering. Empty string "" (not None) when unset, matches
+            # the JSON-default convention for Optional[str] fields in the
+            # index projection. Malformed values (not 64-hex) are silently
+            # coerced to "" — graceful degradation for poisoned records
+            # (same gate as feature_set_ref.content_hash harvest).
+            "compatibility_fingerprint": (
+                self.compatibility_fingerprint
+                if (
+                    isinstance(self.compatibility_fingerprint, str)
+                    and bool(CONTENT_HASH_RE.match(self.compatibility_fingerprint))
+                )
+                else ""
+            ),
             # Phase 8A.0 (2026-04-20): extraction-cache observability.
             # Empty dict (not None) for pre-Phase-8A.0 records so
             # ``ledger list --cache-hit true`` has a stable shape. Full
