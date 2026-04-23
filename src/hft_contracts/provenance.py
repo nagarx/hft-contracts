@@ -133,17 +133,52 @@ def capture_git_info(repo_dir: Path) -> GitInfo:
     return info
 
 
-def hash_file(path: Path) -> str:
+def hash_file(path: Path, *, missing_ok: bool = True) -> str:
     """Compute SHA-256 hash of a file's contents.
 
+    Canonical SSoT for file hashing across the HFT pipeline. Phase V.1.5
+    follow-up (2026-04-23): consolidates the previously-triplicated helper
+    from ``hft-ops::_sha256_file`` (raised on missing) and
+    ``hft-feature-evaluator::_hash_file`` (returned ``sha256:`` prefix).
+    Those two local helpers are removed in favor of this canonical
+    implementation — one call, one contract, no semantic drift.
+
     Args:
-        path: Path to the file.
+        path: Path to the file to hash.
+        missing_ok: If True (default), a missing file returns the empty
+            string ``""`` — preserves legacy provenance-friendly behavior
+            (provenance capture should not crash the pipeline when an
+            optional artifact is absent). If False, raises
+            ``FileNotFoundError`` so callers can distinguish "file missing"
+            from "file is empty" or "file hashed to all-zeros". Required
+            when the caller has ALREADY asserted the file exists and a
+            missing file is a bug (e.g. post-load of a signal dir where
+            the resolver guaranteed the file is present).
 
     Returns:
-        Hex-encoded SHA-256 hash string, or empty string if file not found.
+        Hex-encoded SHA-256 hash string (64 lowercase hex chars, bare —
+        NO ``sha256:`` prefix). Monorepo convention is bare hex everywhere
+        — locked by ``test_profile_hash.py::test_hash_format`` and
+        ``test_feature_sets_hashing.py::test_hash_has_no_prefix``.
+        Empty string returned iff ``missing_ok=True`` AND path doesn't
+        exist.
+
+    Raises:
+        FileNotFoundError: iff ``missing_ok=False`` AND the path does not
+            exist (as a file or otherwise).
+
+    I/O: streams the file in 8 KB chunks — bounded memory for arbitrarily
+    large files; identical chunk boundaries to the legacy
+    ``hft-ops::_sha256_file`` (bit-exact output on existing fixtures).
     """
     if not path.exists():
-        return ""
+        if missing_ok:
+            return ""
+        raise FileNotFoundError(
+            f"hash_file: {path} does not exist and missing_ok=False. "
+            f"Caller promised the file exists; check the resolver that "
+            f"produced this path for a stale-reference bug."
+        )
 
     h = hashlib.sha256()
     with open(path, "rb") as f:

@@ -43,6 +43,98 @@ class TestHashFile:
         assert hash_file(tmp_path / "nonexistent.txt") == ""
 
 
+class TestHashFileSemantics:
+    """V.1.5 follow-up (2026-04-23) — SSoT consolidation contract tests.
+
+    This class pins the canonical-form semantics that prevent future
+    drift / re-duplication. The previous pipeline had THREE divergent
+    hash-file helpers (hft-contracts bare-hex/empty-on-missing,
+    hft-ops raise-on-missing, hft-feature-evaluator ``sha256:``-prefix
+    1MB-chunks). Consolidation requires locked semantics before consumers
+    migrate — these tests ARE the contract.
+    """
+
+    def test_return_is_bare_hex_no_prefix(self, tmp_path: Path):
+        """Monorepo convention is BARE hex everywhere. No ``sha256:`` or
+        other prefix. Locked per parity with
+        ``test_feature_sets_hashing.py::test_hash_has_no_prefix`` and
+        ``hft-feature-evaluator/tests/test_profile_hash.py`` assertions."""
+        f = tmp_path / "content.txt"
+        f.write_text("bare hex only")
+        h = hash_file(f)
+        assert not h.startswith("sha256:"), (
+            f"hash_file must return BARE hex; got prefix-wrapped {h!r}. "
+            f"Monorepo convention is bare 64-hex; prefixes are cosmetic "
+            f"additions at call sites only."
+        )
+        assert all(c in "0123456789abcdef" for c in h), (
+            f"hash_file must return lowercase hex only; got {h!r}."
+        )
+        assert len(h) == 64
+
+    def test_missing_ok_true_default_returns_empty_string(self, tmp_path: Path):
+        """Default ``missing_ok=True`` preserves legacy provenance-friendly
+        behavior: missing file → ``""``. Provenance capture should never
+        crash the pipeline when an optional artifact is absent."""
+        nonexistent = tmp_path / "no_such_file.txt"
+        assert not nonexistent.exists()
+        assert hash_file(nonexistent) == ""  # default missing_ok=True
+        assert hash_file(nonexistent, missing_ok=True) == ""
+
+    def test_missing_ok_false_raises_filenotfound(self, tmp_path: Path):
+        """``missing_ok=False`` raises FileNotFoundError on missing file.
+        Required by callers that have already validated file existence
+        and for whom a missing file is a bug (e.g. post-load of a signal
+        directory whose resolver guaranteed the file is present)."""
+        nonexistent = tmp_path / "no_such_file.txt"
+        with pytest.raises(FileNotFoundError) as exc_info:
+            hash_file(nonexistent, missing_ok=False)
+        # Error message cites the path + explains the contract violation
+        msg = str(exc_info.value)
+        assert str(nonexistent) in msg
+        assert "missing_ok=False" in msg
+
+    def test_missing_ok_is_keyword_only(self, tmp_path: Path):
+        """``missing_ok`` is keyword-only to prevent positional typos
+        (e.g., ``hash_file(path, True)`` being ambiguous with a chunk_bytes
+        future param). Locks the API shape."""
+        f = tmp_path / "x.txt"
+        f.write_text("x")
+        # Keyword form works:
+        assert hash_file(f, missing_ok=True) == hash_file(f, missing_ok=False)
+        # Positional second-arg would be a TypeError under keyword-only:
+        with pytest.raises(TypeError):
+            hash_file(f, False)  # type: ignore[misc]
+
+    def test_streaming_chunk_boundaries_bit_exact(self, tmp_path: Path):
+        """Lock the 8KB-chunk contract. Legacy hft-ops::_sha256_file used
+        8KB chunks; preserving the chunk size keeps bit-exact output on
+        existing fixtures + prevents surprise re-hashing of artifacts."""
+        # 12KB content crosses two 8KB chunk boundaries
+        import hashlib
+        content = b"a" * 12000
+        f = tmp_path / "chunked.bin"
+        f.write_bytes(content)
+        expected = hashlib.sha256(content).hexdigest()
+        assert hash_file(f) == expected
+
+    def test_empty_file_hashes_to_known_empty_sha256(self, tmp_path: Path):
+        """Empty file (exists, zero bytes) ≠ missing file (""). Empty file
+        hashes to SHA-256("") = canonical empty-digest. Distinguishes
+        "file exists and is empty" from "file does not exist" on both
+        missing_ok branches."""
+        import hashlib
+        empty_sha256 = hashlib.sha256(b"").hexdigest()
+        f = tmp_path / "empty.bin"
+        f.write_bytes(b"")
+        # Empty file hashes to its real SHA-256, NOT empty string
+        assert hash_file(f) == empty_sha256
+        assert hash_file(f, missing_ok=False) == empty_sha256
+        # Missing file under missing_ok=True returns "", NOT empty_sha256
+        assert hash_file(tmp_path / "absent.bin") == ""
+        assert hash_file(tmp_path / "absent.bin") != empty_sha256
+
+
 class TestHashConfigDict:
     def test_deterministic(self):
         cfg = {"a": 1, "b": {"c": 3}}
