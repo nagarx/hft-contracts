@@ -419,3 +419,55 @@ class TestExpectedFieldsPartialAssertion:
         manifest = SignalManifest.from_signal_dir(d)
         with pytest.raises(ValueError, match="non-empty dict"):
             manifest.validate(d, expected_fields={})
+
+
+class TestRequireFingerprintKwarg:
+    """Phase A (2026-04-23): ``validate(require_fingerprint=True)`` kwarg.
+
+    Stricter than ``strict=True`` — opt-in guard that rejects ANY manifest
+    whose ``compatibility_fingerprint`` is None, independent of whether the
+    compatibility block is present or absent. Intended for post-Phase-A
+    consumers that want to guarantee every manifest they ingest has a
+    verifiable producer-side fingerprint.
+
+    Default ``False`` preserves all pre-Phase-A call-site behavior.
+    """
+
+    def _legacy_signal_dir(self, tmp_path: Path) -> Path:
+        """Build a pre-Phase-II signal directory (no compatibility block / fp)."""
+        d = tmp_path / "legacy"
+        d.mkdir()
+        meta = {
+            "model_type": "tlob",
+            "split": "val",
+            "total_samples": 10,
+        }
+        (d / "signal_metadata.json").write_text(json.dumps(meta))
+        np.save(d / "predictions.npy", np.zeros(10, dtype=np.int64))
+        np.save(d / "labels.npy", np.zeros(10, dtype=np.int64))
+        np.save(d / "prices.npy", np.ones(10) * 100.0)
+        np.save(d / "spreads.npy", np.zeros(10))
+        return d
+
+    def test_default_false_preserves_legacy_behavior(self, tmp_path):
+        """Default ``require_fingerprint=False`` — pre-Phase-II manifest loads
+        with legacy warning, no raise. Matches pre-Phase-A semantics exactly.
+        """
+        d = self._legacy_signal_dir(tmp_path)
+        manifest = SignalManifest.from_signal_dir(d)
+        warnings_out = manifest.validate(d)
+        assert any("Legacy signal manifest" in w for w in warnings_out)
+
+    def test_require_fingerprint_true_rejects_legacy_manifest(self, tmp_path):
+        """``require_fingerprint=True`` rejects when fingerprint is None."""
+        d = self._legacy_signal_dir(tmp_path)
+        manifest = SignalManifest.from_signal_dir(d)
+        with pytest.raises(ContractError, match="require_fingerprint=True"):
+            manifest.validate(d, require_fingerprint=True)
+
+    def test_require_fingerprint_true_accepts_phase_ii_manifest(self, tmp_path):
+        """``require_fingerprint=True`` with a valid fingerprint: no raise."""
+        c = _base_contract()
+        d = _write_classification_signal_dir(tmp_path / "rf_ok", contract=c)
+        manifest = SignalManifest.from_signal_dir(d)
+        manifest.validate(d, require_fingerprint=True)

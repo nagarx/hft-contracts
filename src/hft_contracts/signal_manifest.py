@@ -329,6 +329,8 @@ class SignalManifest:
         expected_contract: Optional[CompatibilityContract] = None,
         expected_fields: Optional[Dict[str, Any]] = None,
         strict: bool = False,
+        *,
+        require_fingerprint: bool = False,
     ) -> List[str]:
         """Validate signal directory against this manifest.
 
@@ -359,6 +361,18 @@ class SignalManifest:
                 the 3-way check but still run shape/NaN validation. Strict mode is
                 the recommended setting for production consumers after the 2-week
                 back-compat window — see ``hft_contracts/CHANGELOG.md`` v2.3.0.
+            require_fingerprint: Phase A (2026-04-23). Keyword-only opt-in.
+                When True, raise :class:`ContractError` if
+                ``compatibility_fingerprint`` is None. This is a stricter guard
+                than ``strict=True`` — ``strict=True`` rejects when BOTH the
+                compatibility block AND fingerprint are missing (pre-Phase-II
+                legacy); ``require_fingerprint=True`` rejects when just the
+                fingerprint is missing (post-Phase-II producer-path regressions
+                where the block was emitted without the fingerprint, OR any
+                manifest where the fingerprint is unavailable). Intended for
+                post-Phase-A consumers that want to guarantee EVERY manifest
+                they validate has a verifiable producer-side fingerprint.
+                Default ``False`` preserves all current call-site behavior.
 
         Raises:
             ContractError: For critical issues:
@@ -384,6 +398,21 @@ class SignalManifest:
         """
         signal_dir = Path(signal_dir)
         warnings: List[str] = []
+
+        # --- Phase A (2026-04-23): opt-in require_fingerprint gate. Runs
+        # BEFORE the 3-way check so operators get a clear "no fingerprint"
+        # error rather than a downstream "block present but fingerprint
+        # missing" malformed-manifest error. ---
+        if require_fingerprint and self.compatibility_fingerprint is None:
+            raise ContractError(
+                "SignalManifest was validated with require_fingerprint=True "
+                f"but ``compatibility_fingerprint`` is None (signal_dir={signal_dir!s}). "
+                "The producer either (a) was pre-Phase-II and did not emit a "
+                "fingerprint, or (b) regressed the Phase A producer-path fix "
+                "(see trainer exporter.py + lobtrainer.config.paths.resolve_labels_config). "
+                "To accept legacy manifests, pass require_fingerprint=False "
+                "(the default) instead."
+            )
 
         # --- Phase II: CompatibilityContract 3-way validation (runs FIRST so that
         # a version-skewed signal is rejected before any NPY-load work is done). ---
