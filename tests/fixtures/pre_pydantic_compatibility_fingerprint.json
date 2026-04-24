@@ -1,0 +1,23 @@
+{
+  "contract": {
+    "calibration_method": null,
+    "contract_version": "2.2",
+    "data_source": "mbo_lob",
+    "feature_count": 98,
+    "feature_layout": "default",
+    "horizons": [
+      10,
+      60,
+      300
+    ],
+    "label_strategy_hash": "e36f7e8c01ee2311d97ce35435890860b41c7c6902807c3e72e57d9fec754fe5",
+    "normalization_strategy": "none",
+    "primary_horizon_idx": 0,
+    "schema_version": "2.2",
+    "window_size": 100
+  },
+  "fingerprint": "6b6d70810d2ecb564c78f4964b0529528ac6c72e9736472030271faf6a25de34",
+  "generated_by": "hft-contracts/tests/fixtures/generate_pre_migration_snapshots.py",
+  "generated_for_phase": "A.5.1",
+  "generated_utc_date": "2026-04-24"
+}

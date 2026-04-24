@@ -268,23 +268,73 @@ class CompatibilityContract:
 def compute_label_strategy_hash(labels_config: Any) -> str:
     """Derive ``label_strategy_hash`` for a CompatibilityContract from any labels config.
 
-    The labels config may be a dataclass, dict, or any object convertible via
-    ``asdict()`` / ``vars()`` / ``__dict__``. Hashing goes through the same
-    ``hft_contracts.canonical_hash`` SSoT that other contract hashes use, so the
-    fingerprint is consistent with ``feature_set.content_hash`` semantics.
+    The labels config may be a Pydantic BaseModel, @dataclass, plain dict,
+    or any object with ``__dict__``. Hashing goes through the same
+    ``hft_contracts.canonical_hash`` SSoT that other contract hashes use,
+    so the fingerprint is consistent with ``feature_set.content_hash``
+    semantics.
+
+    **Dispatch order** (Phase A.5.1, 2026-04-24):
+        1. Pydantic v2 BaseModel (``hasattr(model_dump)``) — ``.model_dump(exclude_none=False)``.
+        2. @dataclass (``hasattr(__dataclass_fields__)``) — ``asdict()``.
+        3. plain dict — shallow copy.
+        4. object with ``__dict__`` — ``vars()`` with ``_``-prefix strip
+           for defensive internal-cache exclusion.
+        5. else — raise ``TypeError`` (fail-loud, hft-rules §5).
+
+    **Why Pydantic MUST come first**: a Pydantic v2 BaseModel has BOTH
+    ``.model_dump()`` AND ``.__dict__``. If we fell to the ``__dict__``
+    branch we would leak Pydantic internals (``__pydantic_fields_set__``,
+    ``__pydantic_private__``, ``__pydantic_extra__``) into the payload,
+    producing a DIFFERENT hash than the dataclass ``asdict()`` path would
+    produce for the same logical content. That drift would silently break
+    every post-migration ``compatibility_fingerprint`` stored in the
+    ledger (hft-rules §9 measurement-context validity + §1 SSoT — same
+    logical LabelsConfig content MUST produce byte-identical hashes
+    across the dataclass→BaseModel migration).
+
+    Byte-identity invariant (locked by ``test_compatibility_contract.py``):
+
+        hash(LabelsConfig_dataclass(...)) == hash(LabelsConfig_pydantic(...))
+
+    for identical field values. The Pydantic branch uses
+    ``exclude_none=False`` to match ``asdict()`` semantics (None fields
+    included). ``model_dump()`` default mode ("python") returns Python
+    objects + recursively serializes nested BaseModels — parity with
+    ``asdict()`` on nested dataclasses.
 
     Args:
-        labels_config: LabelsConfig dataclass instance, dict, or any canonicalizable
-            object. Hashed via ``asdict()`` if it's a dataclass, else via ``vars()``.
+        labels_config: LabelsConfig (Pydantic v2 BaseModel or @dataclass),
+            dict, or any object with ``__dict__``.
 
     Returns:
         64-char lowercase hex SHA-256.
+
+    Raises:
+        TypeError: when ``labels_config`` is none of the above. Fail-loud
+            prevents silent fallback to ``{"value": labels_config}`` that
+            would mask type-mismatch bugs.
     """
-    if hasattr(labels_config, "__dataclass_fields__"):
+    if hasattr(labels_config, "model_dump"):
+        # Pydantic v2 BaseModel — dispatch FIRST (see docstring rationale).
+        payload = labels_config.model_dump(exclude_none=False)
+    elif hasattr(labels_config, "__dataclass_fields__"):
         payload = asdict(labels_config)
     elif isinstance(labels_config, dict):
         payload = dict(labels_config)
+    elif hasattr(labels_config, "__dict__"):
+        # Defensive: strip ``_``-prefix attributes to prevent leaking
+        # internal cache state (Phase 4 Batch 4b R3 invariant pattern —
+        # private fields MUST NOT participate in content hashes).
+        payload = {
+            k: v for k, v in vars(labels_config).items() if not k.startswith("_")
+        }
     else:
-        # Best-effort introspection; sanitize_for_hash will flatten further
-        payload = vars(labels_config) if hasattr(labels_config, "__dict__") else {"value": labels_config}
+        raise TypeError(
+            f"compute_label_strategy_hash: unsupported labels_config type "
+            f"{type(labels_config).__name__} — expected Pydantic v2 BaseModel, "
+            f"@dataclass, dict, or object with __dict__. "
+            f"Previous silent fallback to {{'value': obj}} was a documented "
+            f"anti-pattern retired in Phase A.5.1 (hft-rules §5 fail-fast)."
+        )
     return sha256_hex(canonical_json_blob(sanitize_for_hash(payload)))

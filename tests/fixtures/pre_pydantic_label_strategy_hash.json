@@ -1,0 +1,15 @@
+{
+  "generated_by": "hft-contracts/tests/fixtures/generate_pre_migration_snapshots.py",
+  "generated_for_phase": "A.5.1",
+  "generated_utc_date": "2026-04-24",
+  "label_strategy_hash": "e36f7e8c01ee2311d97ce35435890860b41c7c6902807c3e72e57d9fec754fe5",
+  "labels_config": {
+    "horizons": [],
+    "primary_horizon_idx": 0,
+    "return_type": "smoothed_return",
+    "sample_weights": "none",
+    "source": "auto",
+    "task": "auto",
+    "threshold_bps": 8.0
+  }
+}

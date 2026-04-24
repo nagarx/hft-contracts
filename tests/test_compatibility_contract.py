@@ -8,9 +8,21 @@ Locks Phase II (plan v2.0) invariants:
     5. fingerprint format: 64-char lowercase hex.
     6. label_strategy_hash helper is deterministic over dataclasses + dicts.
     7. sanitize handles tuple/list/NaN per canonical_hash SSoT.
+
+Phase A.5.1 (2026-04-24) additions (``TestPydanticParity`` class below):
+    8. Pydantic v2 BaseModel input produces byte-identical label_strategy_hash
+       to an equivalent @dataclass (critical for dacite→pydantic migration
+       byte-identity across the ledger's ``compatibility_fingerprint``).
+    9. ``_``-prefix attributes are stripped from the ``vars()`` fallback
+       branch (prevents internal-cache state from leaking into the hash).
+   10. ``CompatibilityContract.fingerprint()`` is byte-stable against the
+       frozen ``pre_pydantic_compatibility_fingerprint.json`` snapshot.
 """
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -304,3 +316,152 @@ class TestDefensiveValidators:
     def test_bool_primary_horizon_idx_raises(self):
         with pytest.raises(ValueError, match="primary_horizon_idx"):
             _base_contract(primary_horizon_idx=True)
+
+
+# =============================================================================
+# Phase A.5.1 (2026-04-24): Pydantic v2 migration byte-identity locks.
+#
+# These tests DEFEND the byte-identity invariant across the dacite→Pydantic
+# migration (A.5.3a). They MUST pass BEFORE A.5.3a ships — they lock in a
+# SHA-256 against the frozen fixture ``tests/fixtures/pre_pydantic_*.json``,
+# which was generated against the pre-migration @dataclass LabelsConfig.
+#
+# Failure mode: if ``compute_label_strategy_hash`` produces different bytes
+# for Pydantic vs dataclass input, every post-A.5.3a record's
+# ``compatibility_fingerprint`` would rotate — silently breaking
+# ``hft-ops ledger list --compatibility-fp <hex>`` cross-experiment queries.
+#
+# fixtures_dir resolves to ``hft-contracts/tests/fixtures/`` in the standalone
+# repo. No ``pytest.skip`` escape — these are ship-blockers per plan v4.
+# =============================================================================
+
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+class TestPydanticParity:
+    """Lock the dacite→Pydantic migration's byte-identity invariants.
+
+    Three tests:
+        1. ``_``-prefix strip actually works (vars() fallback safety).
+        2. Pydantic BaseModel with matching fields reproduces the frozen
+           dataclass-generated ``label_strategy_hash``.
+        3. ``CompatibilityContract.fingerprint()`` reproduces the frozen
+           full-11-key fingerprint.
+    """
+
+    def test_compute_label_strategy_hash_strips_private_prefix_in_vars_fallback(self):
+        """The ``vars()`` branch MUST drop ``_``-prefix fields.
+
+        Non-tautological: we construct two instances with DIFFERENT
+        ``_internal_cache`` values and assert IDENTICAL hashes — proving
+        the strip actually runs (merely checking ``len==64`` would not
+        detect a silent leak).
+        """
+        class NonStandardInput:
+            """Not a dataclass, not a Pydantic BaseModel, not a dict →
+            falls to ``hasattr(__dict__)`` branch with ``_``-prefix strip."""
+            def __init__(self, cache_value: str = "v1") -> None:
+                self.source = "auto"
+                self.return_type = "smoothed_return"
+                self.horizons: list = []
+                # Internal cache — MUST be stripped from the hash payload.
+                self._internal_cache = cache_value
+
+        h1 = compute_label_strategy_hash(NonStandardInput(cache_value="v1"))
+        h2 = compute_label_strategy_hash(NonStandardInput(cache_value="v2"))
+        assert h1 == h2, (
+            f"``_``-prefix was NOT stripped from the vars() fallback. "
+            f"Different ``_internal_cache`` values produced DIFFERENT hashes "
+            f"(h1={h1!r}, h2={h2!r}), which means internal cache state is "
+            f"leaking into ``compute_label_strategy_hash``. See hft-rules §1 "
+            f"SSoT + Phase 4 Batch 4b R3 invariant on `_`-prefix filtering."
+        )
+        # Sanity: output is a valid 64-char lowercase hex SHA-256.
+        assert len(h1) == 64
+        assert all(c in "0123456789abcdef" for c in h1)
+
+    def test_compute_label_strategy_hash_accepts_pydantic_basemodel(self):
+        """Pydantic v2 BaseModel dispatch MUST produce the same bytes as
+        the pre-migration @dataclass path for the same logical content.
+
+        Locks the cross-module fingerprint-drift bug class: without this
+        test, the dacite→Pydantic migration at A.5.3a would silently
+        rotate every post-migration ledger record's
+        ``compatibility_fingerprint``.
+
+        The mock ``_MockLabels`` fields MUST match ``_FixtureLabelsConfig``
+        in ``tests/fixtures/generate_pre_migration_snapshots.py`` (which
+        mirrors the real ``lobtrainer.config.schema.LabelsConfig`` as of
+        2026-04-24). Any field drift in real LabelsConfig → this test
+        must be regenerated + the A.5.3a parity test updated.
+        """
+        from pydantic import BaseModel, ConfigDict, Field
+
+        class _MockLabels(BaseModel):
+            """Mock Pydantic mirror of the 2026-04-24 real LabelsConfig.
+
+            Field signature MUST match ``_FixtureLabelsConfig`` in the
+            one-off generator script, which mirrored the real
+            ``lobtrainer.config.schema.LabelsConfig`` defaults at A.5.1
+            snapshot time. ``frozen=True, extra="forbid"`` matches the
+            planned A.5.3a Pydantic migration's ``model_config`` and
+            prevents silent drift.
+            """
+            model_config = ConfigDict(frozen=True, extra="forbid")
+            source: str = "auto"
+            return_type: str = "smoothed_return"
+            task: str = "auto"
+            threshold_bps: float = 8.0
+            horizons: list = Field(default_factory=list)
+            primary_horizon_idx: int | None = 0
+            sample_weights: str = "none"
+
+        pydantic_hash = compute_label_strategy_hash(_MockLabels())
+
+        # Compare against the frozen fixture generated from dataclass.
+        fixture_path = _FIXTURES_DIR / "pre_pydantic_label_strategy_hash.json"
+        with open(fixture_path) as f:
+            frozen = json.load(f)
+        expected_hash = frozen["label_strategy_hash"]
+
+        assert pydantic_hash == expected_hash, (
+            f"Pydantic hash {pydantic_hash!r} != frozen dataclass hash "
+            f"{expected_hash!r}. The dacite→Pydantic migration would SILENTLY "
+            f"rotate every ledger record's ``compatibility_fingerprint`` — "
+            f"ship-blocker per Phase A.5 Scope D v4. "
+            f"Fixture path: {fixture_path}. "
+            f"If the real LabelsConfig fields changed since 2026-04-24, "
+            f"regenerate the fixture via the script in git history at the "
+            f"A.5.1 commit AND update ``_MockLabels`` here."
+        )
+
+    def test_compatibility_fingerprint_byte_stability_against_frozen_fixture(self):
+        """``CompatibilityContract.fingerprint()`` MUST reproduce the
+        frozen 11-key fingerprint byte-exactly.
+
+        Defends against canonicalization drift in:
+            - ``hft_contracts.canonical_hash.canonical_json_blob`` (SSoT)
+            - ``CompatibilityContract.to_canonical_dict`` (tuple → list)
+            - ``CompatibilityContract.__post_init__`` (horizons coercion)
+
+        Unlike the label_strategy_hash parity test, this locks the OUTER
+        fingerprint over the full 11 shape-determining keys — if any of
+        those fields' serialization changes, this test fires.
+        """
+        fixture_path = _FIXTURES_DIR / "pre_pydantic_compatibility_fingerprint.json"
+        with open(fixture_path) as f:
+            frozen = json.load(f)
+        expected_fingerprint = frozen["fingerprint"]
+        contract_payload = frozen["contract"]
+
+        contract = CompatibilityContract(**contract_payload)
+        actual_fingerprint = contract.fingerprint()
+
+        assert actual_fingerprint == expected_fingerprint, (
+            f"CompatibilityContract fingerprint drifted: expected "
+            f"{expected_fingerprint!r}, got {actual_fingerprint!r}. "
+            f"A change to any of canonical_json_blob, to_canonical_dict, "
+            f"or horizons-coercion semantics would silently invalidate "
+            f"every stored ledger fingerprint. Fixture path: {fixture_path}."
+        )

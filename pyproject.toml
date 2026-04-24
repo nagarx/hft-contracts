@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hft-contracts"
-version = "2.2.0"
+version = "2.3.0"
 description = "Single source of truth for HFT pipeline cross-module contracts (features, labels, provenance, canonical-hash, atomic-I/O)"
 readme = "README.md"
 requires-python = ">=3.10"

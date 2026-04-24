@@ -9,6 +9,104 @@ cross-module **contract schema version** is tracked independently via
 
 ---
 
+## [2.3.0] — 2026-04-24
+
+**Phase A.5.1** — two additive primitives shipped together as a single MINOR
+bump. Both are defensive prep for the Phase A.5 Scope D v4 dacite→Pydantic
+migration of `lob-model-trainer` (trainer migration lands in A.5.3a–i). No
+breaking changes; contract schema version unchanged at `2.2`.
+
+### Added (Phase A.5.1, 2026-04-24)
+
+- **`hft_contracts.timestamp_utils`** — ISO-8601 UTC-aware parsing + cutoff
+  comparison SSoT. Two helpers:
+    - `parse_iso8601_utc(ts: str) -> datetime` — returns a timezone-aware UTC
+      datetime. Handles naive timestamps (interpreted as UTC per hft-rules
+      §3), the `Z` suffix (normalized to `+00:00` for Python < 3.11
+      compat), and explicit offsets (converted via `astimezone`). Raises
+      `TypeError` on non-string input (prevents silent coercion bugs) and
+      `ValueError` on malformed strings (fail-loud per §5).
+    - `is_after_cutoff(timestamp: str, cutoff_iso: str) -> bool` — strict
+      UTC `>=` comparison. Replaces the lexicographic `ts >= cutoff` pattern
+      that fails silently for non-UTC offsets (e.g., `"2026-04-22T23:59-05:00"`
+      is strictly after UTC cutoff `"2026-04-23"` but lex-compares as `<`).
+  Rationale: Phase V.A.4 added
+  `FINGERPRINT_REQUIRED_AFTER_ISO = "2026-04-23"` + a lexicographic cutoff
+  check in `hft_ops.stages.signal_export`. Operators shipping from a
+  non-UTC producer would silently fall into the pre-cutoff branch — a
+  silent-wrong-result class that violates hft-rules §8. A.5.2 migrates
+  `hft-ops` to use `is_after_cutoff`.
+  Re-exported at package level: `from hft_contracts import parse_iso8601_utc, is_after_cutoff`.
+  15 new tests in `tests/test_timestamp_utils.py` (naive-as-UTC, non-UTC
+  offset crossing midnight, Z suffix, malformed raises, TypeError on
+  None/bytes/int, empty-string raises, fractional seconds preserved,
+  epoch edge, pre/post/boundary cutoff, malformed-timestamp/cutoff
+  propagation).
+- **`tests/fixtures/pre_pydantic_label_strategy_hash.json`** — byte-identity
+  snapshot of `compute_label_strategy_hash` output for the default
+  `LabelsConfig()` dataclass field values at 2026-04-24. Locks the
+  invariant that the A.5.3a Pydantic migration does NOT rotate any
+  stored ledger `compatibility_fingerprint`.
+- **`tests/fixtures/pre_pydantic_compatibility_fingerprint.json`** —
+  byte-identity snapshot of `CompatibilityContract.fingerprint()` for a
+  realistic 98-feat / window=100 / mbo_lob contract. Locks the outer
+  11-key fingerprint across any future canonicalization change.
+- **3 new byte-identity lock tests** in `tests/test_compatibility_contract.py::TestPydanticParity`:
+    - `test_compute_label_strategy_hash_strips_private_prefix_in_vars_fallback`
+      — non-tautological: constructs two instances with different
+      `_internal_cache` values and asserts identical hashes (proving the
+      strip actually runs, not just that output is 64-hex).
+    - `test_compute_label_strategy_hash_accepts_pydantic_basemodel` — the
+      ship-blocker. Mock Pydantic v2 BaseModel with fields matching the
+      real `LabelsConfig` defaults; asserts hash byte-equals the frozen
+      dataclass fixture. If this test fails at A.5.3a time, every
+      post-migration record's `compatibility_fingerprint` would rotate.
+    - `test_compatibility_fingerprint_byte_stability_against_frozen_fixture`
+      — outer 11-key fingerprint locked against the frozen payload.
+
+### Changed (Phase A.5.1, 2026-04-24)
+
+- **`hft_contracts.compatibility.compute_label_strategy_hash`** — new
+  dispatch order: (1) Pydantic v2 BaseModel (`hasattr model_dump`) →
+  `.model_dump(exclude_none=False)`; (2) @dataclass → `asdict()`; (3)
+  plain dict → shallow copy; (4) object with `__dict__` → `vars()` with
+  `_`-prefix strip; (5) else → `TypeError` (fail-loud per §5).
+  **Why Pydantic MUST come first**: a Pydantic BaseModel has BOTH
+  `.model_dump()` AND `.__dict__`. Without this ordering, the `__dict__`
+  fallback would leak Pydantic internals
+  (`__pydantic_fields_set__`, `__pydantic_private__`, `__pydantic_extra__`)
+  into the canonical payload → the migration at A.5.3a would silently
+  rotate every ledger record's `compatibility_fingerprint`. The new
+  dispatch is locked by the A.5.1 byte-identity tests.
+  **Backward compatibility**: the dataclass / dict / private-stripped
+  `vars()` branches remain; behavior on those inputs is unchanged. The
+  previously-silent fallback `{"value": obj}` for unknown types now
+  raises `TypeError` — no known caller relied on it (verified via
+  monorepo grep).
+- **`__version__`** bumped `"2.2.0"` → `"2.3.0"` (additive MINOR).
+- **`pyproject.toml`** version bumped to `2.3.0` accordingly.
+
+### Test counts (authoring env post-A.5.1)
+
+- `test_timestamp_utils.py`: **+15** tests (all new — defensive coverage
+  added 3 beyond the plan's "12 tests" target for TypeError on None /
+  bytes / int, which are each distinct silent-coercion bug classes).
+- `test_compatibility_contract.py`: **+3** tests (TestPydanticParity).
+- Total hft-contracts: authoring env was 499 pre-A.5.1 → **517** after.
+
+### Operator-facing migration notes (Phase A.5.1 → A.5.2 → A.5.3a)
+
+- hft-ops downstream consumer bump: `hft-ops/pyproject.toml` must pin
+  `hft-contracts>=2.3.0` (ships in A.5.2 consumer commit).
+- A.5.3a (trainer `LabelsConfig` → Pydantic BaseModel) is unblocked by
+  this release. The `test_compute_label_strategy_hash_accepts_pydantic_basemodel`
+  test is the cross-module byte-identity guarantee — if the real
+  `LabelsConfig` fields ever diverge from the fixture's
+  `_FixtureLabelsConfig` mirror, the A.5.3a parity test
+  (`test_label_strategy_hash_real_pydantic_parity`) will fire.
+
+---
+
 ## [2.2.1] — 2026-04-21
 
 Phase V.A.1 — Activate Phase 0 forward-pass regression detection. Non-breaking

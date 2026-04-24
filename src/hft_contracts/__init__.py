@@ -18,9 +18,10 @@ Usage:
     from hft_contracts import FeatureIndex, FEATURE_COUNT, TLOB_CONTRACT
     from hft_contracts import validate_export_contract, ContractError
     from hft_contracts import atomic_write_json, CONTENT_HASH_RE
+    from hft_contracts import parse_iso8601_utc, is_after_cutoff
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
@@ -330,6 +331,12 @@ __all__ = [
     # Phase 7 Stage 7.4 Round 5: gate-report contract
     "GATE_STATUS_VALUES",
     "GateReportDict",
+    # Phase A.5.1 (2026-04-24): ISO-8601 UTC-aware parsing + cutoff SSoT.
+    # Replaces lexicographic string comparisons in hft-ops signal_export
+    # (which fail on non-UTC offsets). Also used by future ledger
+    # date-range queries + backtest date gates.
+    "parse_iso8601_utc",
+    "is_after_cutoff",
     # REV 2 pre-push (2026-04-20): atomic-I/O public API (renamed from
     # hft_contracts._atomic_io; underscore shim retained through 2026-10-31).
     "atomic_write_json",
@@ -415,4 +422,15 @@ from hft_contracts.atomic_io import atomic_write_json, AtomicWriteError
 from hft_contracts.gate_report import (
     GATE_STATUS_VALUES,
     GateReportDict,
+)
+
+# -- Phase A.5.1 (2026-04-24): ISO-8601 UTC-aware timestamp SSoT --
+# Cross-module helpers for ISO-8601 parsing + cutoff comparison. The
+# lexicographic string comparison pattern (``ts >= cutoff``) is a
+# silent-wrong-result bug for non-UTC offsets — all call sites must
+# route through these helpers. First consumer: hft-ops signal_export
+# ``FINGERPRINT_REQUIRED_AFTER_ISO`` cutoff check (Phase A.5.2).
+from hft_contracts.timestamp_utils import (
+    parse_iso8601_utc,
+    is_after_cutoff,
 )
