@@ -317,6 +317,55 @@ class TestDefensiveValidators:
         with pytest.raises(ValueError, match="primary_horizon_idx"):
             _base_contract(primary_horizon_idx=True)
 
+    def test_horizons_list_tuple_round_trip_fingerprint_stable(self):
+        """Phase A.5.6 (2026-04-24) — plan v4 bug #6 regression lock.
+
+        The list↔tuple coercion + fingerprint-stability invariant must
+        survive a FULL JSON round-trip (the realistic producer → wire →
+        consumer path):
+
+            CompatibilityContract(horizons=[10, 60, 300])  # producer passes list
+              → .to_canonical_dict() → json.dumps → json.loads → dict
+              → CompatibilityContract(**dict)  # consumer reconstructs
+              → .fingerprint()  # must equal producer's fingerprint
+
+        This is stricter than ``test_horizons_list_vs_tuple_same_fingerprint``
+        (which only proved list-vs-tuple equivalence at construction time):
+        it proves the invariant survives serialization to the wire and
+        reconstruction on the consumer side — the realistic
+        trainer → signal_metadata.json → backtester path.
+        """
+        import json
+
+        # Producer path: list input, list in on-wire JSON.
+        producer = _base_contract(horizons=[10, 60, 300])
+        producer_fp = producer.fingerprint()
+
+        # Serialize via canonical dict → JSON (realistic wire format —
+        # JSON has no tuple type, lists are the canonical sequence
+        # representation).
+        wire_json = json.dumps(producer.to_canonical_dict())
+
+        # Consumer path: parse JSON → reconstruct CompatibilityContract.
+        # JSON parse yields a list; the ``__post_init__`` coerces to tuple.
+        wire_dict = json.loads(wire_json)
+        consumer = _base_contract(**{k: v for k, v in wire_dict.items()
+                                     if k in CompatibilityContract.__dataclass_fields__})
+
+        # Fingerprint must be byte-identical across the round-trip.
+        # If coercion ever drifts (e.g., someone removes the
+        # object.__setattr__(tuple) line), this test catches it —
+        # would have produced a silent fingerprint rotation across the
+        # trainer→backtester hop.
+        assert consumer.fingerprint() == producer_fp, (
+            "Bug #6 regression: horizons list↔tuple round-trip through "
+            "JSON produced a DIFFERENT fingerprint. The list→tuple "
+            "coercion in __post_init__ (line ~197) has drifted — every "
+            "post-migration record's compatibility_fingerprint would "
+            "rotate silently, breaking hft-ops ledger --compatibility-fp "
+            "queries."
+        )
+
 
 # =============================================================================
 # Phase A.5.1 (2026-04-24): Pydantic v2 migration byte-identity locks.
