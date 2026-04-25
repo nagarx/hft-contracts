@@ -444,7 +444,21 @@ class TestPydanticParity:
         mirrors the real ``lobtrainer.config.schema.LabelsConfig`` as of
         2026-04-24). Any field drift in real LabelsConfig → this test
         must be regenerated + the A.5.3a parity test updated.
+
+        Skipped gracefully when ``pydantic`` is absent (hft-contracts
+        does NOT declare pydantic as a runtime dep — the ``hasattr(model_dump)``
+        branch in ``compute_label_strategy_hash`` is defensive forward-
+        compat for downstream Pydantic-using consumers, not a hft-contracts
+        surface obligation). On fresh-clone CI envs without pydantic
+        installed, the non-Pydantic test paths (dataclass + vars-fallback
+        + fingerprint byte-stability) still exercise the SSoT. On trainer-
+        venv dev envs, pydantic is installed transitively via the
+        lobtrainer editable install → this test runs + locks the Pydantic
+        branch's byte-identity with the pre-migration frozen dataclass
+        fixture.
         """
+        import pytest
+        pytest.importorskip("pydantic")
         from pydantic import BaseModel, ConfigDict, Field
 
         class _MockLabels(BaseModel):
