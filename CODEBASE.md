@@ -1,6 +1,6 @@
 # hft-contracts — Codebase Reference
 
-> **Version**: 2.2.0 | **Schema Version**: 2.2 | **Tests**: 490 passing (post Phase V.A.4 + V.1 L1.2 ExperimentRecord extensions) | **Last Updated**: 2026-04-21
+> **Version**: 2.3.0 | **Schema Version**: 2.2 | **Tests**: 518 passing (post Phase A.5.1 `timestamp_utils` SSoT + A.5.6 horizons list/tuple round-trip regression + A.5.7b documentation regression) | **Last Updated**: 2026-04-25 (Phase A.5 cycle close)
 >
 > **Phase V.A.4 SHIPPED (2026-04-21, commit `a0fa3d2`)** — New `ExperimentRecord.compatibility_fingerprint: Optional[str]` field (64-hex SHA-256 validated via `CONTENT_HASH_RE`). Surfaces cross-experiment comparability: every record produced against the same CompatibilityContract version has the same fingerprint. Projected into `index_entry()` for `hft-ops ledger list --compatibility-fp <hex>` filter. `INDEX_SCHEMA_VERSION` bumped 1.3.0 → **1.4.0** (MINOR additive — triggers envelope auto-rebuild on existing ledgers per Phase 8B mechanism).
 >
