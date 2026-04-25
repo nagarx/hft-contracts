@@ -9,6 +9,24 @@ cross-module **contract schema version** is tracked independently via
 
 ---
 
+## [Unreleased]
+
+### Added (Phase A.5.6 + A.5.7b — bug #6 round-trip regression locks)
+
+- **`tests/test_compatibility_contract.py::TestPostInitInvariants::test_horizons_list_tuple_round_trip_fingerprint_stable`**
+  — Phase A.5.6 (2026-04-24) ship-blocker test for plan v4 bug #6.
+  Existing tests proved list-vs-tuple equivalence at construction time;
+  this test proves the invariant survives the FULL producer → JSON wire
+  → consumer reconstruction path (`CompatibilityContract(horizons=[10,60,300])`
+  → `to_canonical_dict()` → `json.dumps` → `json.loads` → re-construct →
+  `fingerprint()` byte-identical to producer's). Closes the gap for the
+  realistic trainer → signal_metadata.json → backtester hop.
+
+No code changes — additive test coverage only. SCHEMA_VERSION unchanged
+at 2.2; package version unchanged at 2.3.0 (no need to bump for tests).
+
+---
+
 ## [2.3.0] — 2026-04-24
 
 **Phase A.5.1** — two additive primitives shipped together as a single MINOR
