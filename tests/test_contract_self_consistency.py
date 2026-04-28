@@ -407,7 +407,10 @@ class TestSchemaVersion:
     """Verify schema version is the expected value."""
 
     def test_schema_version_value(self):
-        assert SCHEMA_VERSION == "2.2"
+        # Phase G G.6.A (2026-04-27): MAJOR bump 2.2 → 3.0 per CLAUDE.md
+        # root rule "modification to stable features (0-97) = BREAKING".
+        # See pipeline_contract.toml [[changelog]] v3.0 entry for rationale.
+        assert SCHEMA_VERSION == "3.0"
 
     def test_known_v22_features(self):
         """Verify the v2.2-specific MBO Core names exist (the drift fix)."""

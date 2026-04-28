@@ -1,6 +1,6 @@
 # AUTO-GENERATED from contracts/pipeline_contract.toml
 # DO NOT EDIT — run: python contracts/generate_python_contract.py
-# Schema version: 2.2 | Generated: 2026-04-21 01:27 UTC
+# Schema version: 3.0 | Generated: 2026-04-27 18:33 UTC
 """
 Pipeline contract constants generated from the authoritative TOML definition.
 
@@ -22,7 +22,7 @@ from typing import Dict, Final
 # Schema Version
 # =====================================================================
 
-SCHEMA_VERSION: Final[str] = "2.2"
+SCHEMA_VERSION: Final[str] = "3.0"
 """
 Schema version for the feature export format.
 
@@ -30,7 +30,7 @@ A change to any stable feature index, label encoding, or normalization
 semantic constitutes a breaking change and requires a version bump here.
 """
 
-SCHEMA_VERSION_FLOAT: Final[float] = 2.2
+SCHEMA_VERSION_FLOAT: Final[float] = 3.0
 """Numeric form for backward-compatible comparisons with older metadata."""
 
 

@@ -36,8 +36,8 @@ from hft_contracts.compatibility import (
 def _base_contract(**overrides) -> CompatibilityContract:
     """Factory for a plausible ``CompatibilityContract`` — overridable per-test."""
     defaults = dict(
-        contract_version="2.2",
-        schema_version="2.2",
+        contract_version="3.0",
+        schema_version="3.0",
         feature_count=98,
         window_size=100,
         feature_layout="default",

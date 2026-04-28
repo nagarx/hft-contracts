@@ -26,151 +26,11 @@
       ]
     },
     "metadata_file": "fixture_metadata_basic.json",
-    "metadata_sha256": "e20f24c1396ef92c8198357837f557cb5ae8c2668c2fd744eed5d52c9e5b548b",
+    "metadata_sha256": "1e101034795d6b146b794906af653099b5e05a3a0dfd3aade9be7e380c5c3911",
     "npz_file": "synthetic_basic.npz"
   },
   "description": "Deterministic synthetic fixtures for the Architectural Hardening Cycle (plan v2.0). Arrays hashes + metadata hash are pinned here. Downstream phases populate 'forward_pass' and 'compute_loss' sub-blocks as their models land. See README.md for acceptable-drift policy.",
-  "forward_pass": {
-    "hmhp_classifier": {
-      "compute_loss": {
-        "components": {
-          "H10": 1.1434502601623535,
-          "H300": 1.162928819656372,
-          "H60": 1.0632169246673584,
-          "consistency": 0.0,
-          "final": 1.1059341430664062
-        },
-        "value": 1.0051534175872803
-      },
-      "config": {
-        "hidden_dim": 16,
-        "horizons": [
-          10,
-          60,
-          300
-        ],
-        "num_encoder_layers": 1,
-        "num_features": 98,
-        "sequence_length": 20
-      },
-      "forward": {
-        "tensor_dtypes": {
-          "agreement": "float32",
-          "confidence": "float32",
-          "horizon_logits_10": "float32",
-          "horizon_logits_300": "float32",
-          "horizon_logits_60": "float32",
-          "logits": "float32"
-        },
-        "tensor_keys": [
-          "agreement",
-          "confidence",
-          "horizon_logits_10",
-          "horizon_logits_300",
-          "horizon_logits_60",
-          "logits"
-        ],
-        "tensor_shapes": {
-          "agreement": [
-            10,
-            1
-          ],
-          "confidence": [
-            10,
-            1
-          ],
-          "horizon_logits_10": [
-            10,
-            3
-          ],
-          "horizon_logits_300": [
-            10,
-            3
-          ],
-          "horizon_logits_60": [
-            10,
-            3
-          ],
-          "logits": [
-            10,
-            3
-          ]
-        },
-        "tensors_file": "forward_pass/hmhp_classifier.npz",
-        "tolerance": {
-          "atol": 1e-06,
-          "rtol": 0.0001
-        }
-      },
-      "model": "HMHP (classifier)",
-      "notes": "Forward-pass tensors pinned in forward_pass/hmhp_classifier.npz; compared via torch.testing.assert_close(rtol=1e-4, atol=1e-6) for platform-drift tolerance (V.A.1 REDESIGN 2026-04-21). Phase I.A FRESH-2 fix will update agreement tensor (NaN-aware three-valued sign + nonzero_fraction added) \u2014 regenerate goldens + document delta in CHANGELOG. Phase I.B will update compute_loss.value (pooling alignment + reduction refactor) \u2014 same update cycle.",
-      "pinned_by_phase": "0.3"
-    },
-    "hmhp_regressor": {
-      "compute_loss": {
-        "components": {
-          "H10": 3.628589630126953,
-          "H300": 2.842616319656372,
-          "H60": 3.448092222213745,
-          "consistency": 0.01273894403129816
-        },
-        "value": 2.407473564147949
-      },
-      "config": {
-        "hidden_dim": 16,
-        "horizons": [
-          10,
-          60,
-          300
-        ],
-        "num_encoder_layers": 1,
-        "num_features": 98,
-        "sequence_length": 20,
-        "use_regression": true
-      },
-      "forward": {
-        "tensor_dtypes": {
-          "agreement": "float32",
-          "horizon_predictions_10": "float32",
-          "horizon_predictions_300": "float32",
-          "horizon_predictions_60": "float32"
-        },
-        "tensor_keys": [
-          "agreement",
-          "horizon_predictions_10",
-          "horizon_predictions_300",
-          "horizon_predictions_60"
-        ],
-        "tensor_shapes": {
-          "agreement": [
-            10,
-            1
-          ],
-          "horizon_predictions_10": [
-            10,
-            1
-          ],
-          "horizon_predictions_300": [
-            10,
-            1
-          ],
-          "horizon_predictions_60": [
-            10,
-            1
-          ]
-        },
-        "tensors_file": "forward_pass/hmhp_regressor.npz",
-        "tolerance": {
-          "atol": 1e-06,
-          "rtol": 0.0001
-        }
-      },
-      "model": "HMHP (regressor)",
-      "notes": "Forward-pass tensors pinned in forward_pass/hmhp_regressor.npz; compared via torch.testing.assert_close(rtol=1e-4, atol=1e-6) for platform-drift tolerance (V.A.1 REDESIGN 2026-04-21). Phase I.A FRESH-2 fix will update agreement tensor (NaN-aware three-valued sign + nonzero_fraction added). Phase I.B compute_loss refactor will update compute_loss.value (reduction + sample_weights signature extension).",
-      "pinned_by_phase": "0.3"
-    }
-  },
-  "forward_pass_populated_at_utc": "2026-04-21T03:16:54.620433+00:00",
+  "forward_pass": {},
   "generated_at_utc": "2026-04-20T00:00:00+00:00",
   "generator": "phase0_benchmark/generate.py",
   "mbo": {
@@ -200,7 +60,7 @@
       ]
     },
     "metadata_file": "fixture_metadata_mbo.json",
-    "metadata_sha256": "fa047baad83bc0040d458862ea3d121609f7ccd75dcaa1ac25ab046d3986176e",
+    "metadata_sha256": "80c5573c2b1324d49f2173a743a69f714a541101c808c7fa341768ca436f2438",
     "npz_file": "synthetic_mbo.npz"
   },
   "schema_version": "1",

@@ -1,6 +1,6 @@
 {
   "bin_size_seconds": 60,
-  "contract_version": "2.2",
+  "contract_version": "3.0",
   "data_source": "off_exchange_phase0_synthetic",
   "day": "20260420_phase0_basic",
   "export_timestamp": "2026-04-20T00:00:00+00:00",
@@ -24,13 +24,13 @@
   },
   "provenance": {
     "config_hash": "phase0_synthetic_basic_v1",
-    "contract_version": "2.2",
+    "contract_version": "3.0",
     "export_timestamp_utc": "2026-04-20T00:00:00+00:00",
     "extractor_version": "phase0_synthetic",
     "git_commit": "phase0_deterministic",
     "git_dirty": false
   },
-  "schema_version": "2.2",
+  "schema_version": "3.0",
   "seed": 42,
   "window_size": 20
 }

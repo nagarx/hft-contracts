@@ -25,8 +25,8 @@ from hft_contracts.validation import ContractError
 
 def _base_contract(**overrides: Any) -> CompatibilityContract:
     defaults = dict(
-        contract_version="2.2",
-        schema_version="2.2",
+        contract_version="3.0",
+        schema_version="3.0",
         feature_count=98,
         window_size=100,
         feature_layout="default",

@@ -160,10 +160,16 @@ class TestMBOFixture:
             )
 
     def test_metadata_contract_version(self, metadata):
-        assert metadata["contract_version"] == "2.2"
+        # Phase G G.6.A (2026-04-27): MAJOR bump 2.2 → 3.0 per CLAUDE.md
+        # root rule "modification to stable features (0-97) = BREAKING".
+        # Fixture regenerated in G.6.C to match SchemaVersion::CURRENT.
+        assert metadata["contract_version"] == "3.0"
 
     def test_metadata_schema_version(self, metadata):
-        assert metadata["schema_version"] == "2.2"
+        # Phase G G.6.A: MAJOR bump 2.2 → 3.0 (see test_metadata_contract_version
+        # for full rationale). Pre-3.0 historical entries preserved as descriptive
+        # changelog labels per pipeline_contract.toml convention shift comment.
+        assert metadata["schema_version"] == "3.0"
 
     def test_metadata_n_features(self, metadata):
         assert metadata["n_features"] == 98

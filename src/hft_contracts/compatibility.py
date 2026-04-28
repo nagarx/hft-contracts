@@ -85,7 +85,7 @@ class CompatibilityContract:
 
     Examples:
         >>> c = CompatibilityContract(
-        ...     contract_version="2.2", schema_version="2.2",
+        ...     contract_version="3.0", schema_version="3.0",
         ...     feature_count=98, window_size=100,
         ...     feature_layout="default", data_source="mbo_lob",
         ...     label_strategy_hash="abc...",

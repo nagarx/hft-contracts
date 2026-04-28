@@ -133,7 +133,7 @@ def generate_mbo_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     }
 
     metadata: Dict[str, Any] = {
-        "contract_version": "2.2",
+        "contract_version": "3.0",
         "day": "20260420_phase0_mbo",
         "export_timestamp": datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc).isoformat(),
         "forward_prices": {
@@ -170,13 +170,13 @@ def generate_mbo_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
         },
         "provenance": {
             "config_hash": "phase0_synthetic_mbo_v1",
-            "contract_version": "2.2",
+            "contract_version": "3.0",
             "export_timestamp_utc": datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc).isoformat(),
             "extractor_version": "phase0_synthetic",
             "git_commit": "phase0_deterministic",
             "git_dirty": False,
         },
-        "schema_version": "2.2",
+        "schema_version": "3.0",
         "tensor_format": None,
         "validation": {
             "label_range_valid": True,
@@ -233,7 +233,7 @@ def generate_basic_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     }
 
     metadata: Dict[str, Any] = {
-        "contract_version": "2.2",
+        "contract_version": "3.0",
         "day": "20260420_phase0_basic",
         "export_timestamp": datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc).isoformat(),
         "data_source": "off_exchange_phase0_synthetic",
@@ -250,13 +250,13 @@ def generate_basic_fixture() -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
         },
         "provenance": {
             "config_hash": "phase0_synthetic_basic_v1",
-            "contract_version": "2.2",
+            "contract_version": "3.0",
             "export_timestamp_utc": datetime(2026, 4, 20, 0, 0, 0, tzinfo=timezone.utc).isoformat(),
             "extractor_version": "phase0_synthetic",
             "git_commit": "phase0_deterministic",
             "git_dirty": False,
         },
-        "schema_version": "2.2",
+        "schema_version": "3.0",
         "seed": SEED,
     }
 
