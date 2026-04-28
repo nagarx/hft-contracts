@@ -1,6 +1,6 @@
 # AUTO-GENERATED from contracts/pipeline_contract.toml
 # DO NOT EDIT — run: python contracts/generate_python_contract.py
-# Schema version: 3.0 | Generated: 2026-04-27 18:33 UTC
+# Schema version: 3.0 | Generated: 2026-04-28 21:48 UTC
 """
 Pipeline contract constants generated from the authoritative TOML definition.
 
@@ -467,7 +467,7 @@ EXPORT_METADATA_NORMALIZATION_FIELDS: Final[tuple[str, ...]] = ('strategy', 'app
 EXPORT_METADATA_PROVENANCE_FIELDS: Final[tuple[str, ...]] = ('extractor_version', 'git_commit', 'git_dirty', 'config_hash', 'contract_version', 'export_timestamp_utc')
 """Required fields inside the metadata provenance block."""
 
-EXPORT_MANIFEST_REQUIRED_FIELDS: Final[tuple[str, ...]] = ('experiment', 'symbol', 'feature_count', 'days_processed', 'export_timestamp', 'config_hash', 'schema_version', 'sequence_length', 'stride', 'labeling_strategy', 'horizons', 'splits')
+EXPORT_MANIFEST_REQUIRED_FIELDS: Final[tuple[str, ...]] = ('experiment', 'symbol', 'feature_count', 'days_processed', 'export_timestamp', 'config_hash', 'schema_version', 'sequence_length', 'stride', 'labeling_strategy', 'horizons', 'splits', 'partial_failure')
 """Required fields in dataset_manifest.json."""
 
 
