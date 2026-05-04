@@ -156,6 +156,7 @@ from hft_contracts.validation import (
     validate_feature_indices,
     validate_schema_version,
     validate_export_contract,
+    validate_day_metadata,  # Phase X.2.A SSoT (2026-05-04)
     validate_normalization_not_applied,
     validate_metadata_completeness,
     validate_label_encoding,
@@ -261,6 +262,7 @@ __all__ = [
     "validate_feature_indices",
     "validate_schema_version",
     "validate_export_contract",
+    "validate_day_metadata",  # Phase X.2.A SSoT (2026-05-04)
     "validate_normalization_not_applied",
     "validate_metadata_completeness",
     "validate_label_encoding",

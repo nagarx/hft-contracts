@@ -335,6 +335,71 @@ def validate_export_contract(
     return warnings
 
 
+def validate_day_metadata(metadata: dict | None, date: str) -> list[str]:
+    """Validate export metadata for a single day at the load boundary.
+
+    Phase X.2.A SSoT (2026-05-04): lifted from
+    ``lobtrainer.data.dataset._validate_day_metadata``. All consumers
+    (trainer, backtester, lob-dataset-analyzer, hft-feature-evaluator)
+    MUST call this primitive at NPY-load time to enforce Phase O Cycle 1
+    C-2 + C-3 + backtester C-4 hardening uniformly across modules — per
+    hft-rules §0 "consume the SSoT, never re-implement".
+
+    Pre-X.2.A: ``_validate_day_metadata`` was trainer-private + open-coded
+    duplicated in 2 backtester sites + bypassed at 4 trainer + 17 analyzer
+    + 1 evaluator NPY-load sites. This SSoT lift unifies the 20+ sites.
+
+    Returns the warnings list (caller is responsible for logging) — preserves
+    hft-contracts' log-free architectural invariant. Raises ContractError
+    with date prefix on hard violations (per hft-rules §8 "never silently
+    drop, clamp, or fix data").
+
+    Args:
+        metadata: Loaded metadata dict from ``*_metadata.json``. ``None``
+            signals a missing file, which IS a hard contract violation
+            (v3.0 producers always emit metadata.json).
+        date: Date string used for error/warning context. Embedded in
+            error messages so operators can locate the offending day in
+            a multi-day corpus.
+
+    Returns:
+        List of non-fatal contract warnings (provenance gaps, optional
+        field absences). Empty if export is fully contract-compliant.
+        Caller logs these via ``logger.warning("(%s) %s", date, w)`` or
+        equivalent — the SSoT does NOT log to preserve module purity.
+
+    Raises:
+        ContractError: If metadata is None, lacks ``schema_version``, or
+            fails any branch of ``validate_export_contract``. Date prefix
+            added for triage. ``__cause__`` chain preserves the underlying
+            ContractError for diagnostic reading.
+    """
+    if metadata is None:
+        raise ContractError(
+            f"Export metadata for {date} is missing or could not be loaded. "
+            f"v3.0 contract requires every day to have a *_metadata.json file. "
+            f"Re-export this day or remove from corpus."
+        )
+
+    if "schema_version" not in metadata:
+        raise ContractError(
+            f"Export metadata for {date} has no 'schema_version' field. "
+            f"Cannot verify contract compatibility. "
+            f"Re-export with the latest feature extractor (Phase O Cycle 1+)."
+        )
+
+    # Wrap downstream raises with the date so operators can locate the
+    # offending day in a multi-day corpus (per hft-rules §8 + Phase O C-3).
+    try:
+        warnings = validate_export_contract(metadata, strict_completeness=False)
+    except ContractError as exc:
+        raise ContractError(
+            f"Export contract violation for {date}: {exc}"
+        ) from exc
+
+    return warnings
+
+
 def validate_off_exchange_export_contract(
     metadata: dict,
 ) -> list[str]:
