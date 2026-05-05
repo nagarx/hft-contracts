@@ -65,7 +65,13 @@ from hft_contracts.signal_manifest import CONTENT_HASH_RE
 #
 # See root ``CLAUDE.md`` §Change-Coordination Checklist row
 # "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
-INDEX_SCHEMA_VERSION: str = "1.4.0"
+INDEX_SCHEMA_VERSION: str = "1.5.0"
+# 1.5.0 (Phase X.3 / Phase D — Empirical Trust 2026-05-05): MINOR additive bump
+# for ``experiment_provenance_hash`` projection — composes 4 existing fingerprints
+# (data_export_fp + feature_set_content_hash + compatibility_fp + model_config_hash)
+# into a single SHA-256 enabling cross-experiment reproducibility queries.
+# Auto-rebuild fires on existing ledgers per the MAJOR.MINOR mismatch policy.
+# 1.4.0 (Phase V.A.4 — 2026-04-21): added compatibility_fingerprint projection.
 # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): additive MINOR bump for the
 # extraction-cache observability fields (``cache_hit``, ``cache_key``,
 # ``cache_seconds_saved``) surfaced via ``ExperimentRecord.cache_info`` and
@@ -218,6 +224,51 @@ class ExperimentRecord:
     # validation via ``CONTENT_HASH_RE``; malformed values surface as empty
     # string "" in the index (graceful degradation for ledger queries).
     compatibility_fingerprint: Optional[str] = None
+
+    # Phase X.3 / Phase D Empirical Trust (2026-05-05): the long-promised
+    # Phase Y trust column — composes 4 existing fingerprints into a single
+    # SHA-256 enabling cross-experiment reproducibility queries:
+    #
+    #     experiment_provenance_hash = sha256(canonical_json_blob({
+    #         "data_export_fp": provenance.data_dir_hash,
+    #         "feature_set_content_hash": feature_set_ref["content_hash"],
+    #         "compatibility_fp": compatibility_fingerprint,
+    #         "model_config_hash": training_config["model_config_hash"],
+    #     }))
+    #
+    # The 4 components are ALREADY computed + stored separately on the
+    # record (Phase II + Phase 4.4c.4 + Phase X.1 v2 + Phase V.A.4). This
+    # field composes them into a single 64-hex identity for the experiment
+    # — same data + same features + same architecture + same loss-tuning
+    # invariants → same hash. Different ANY of the 4 → different hash.
+    #
+    # USE CASES:
+    #   1. ``hft-ops ledger list --provenance-hash <hex>`` — find all runs
+    #      with a specific complete-state identity (e.g., re-runs of an
+    #      experiment to verify reproducibility).
+    #   2. Reproducibility audit — same config + same code should produce
+    #      same provenance hash; drift indicates an upstream change
+    #      (model_config_hash bumped, feature_set rotated, data re-extracted).
+    #   3. Cross-experiment composability — researchers comparing models
+    #      on the same data corpus can filter by compatibility_fingerprint
+    #      AND model_config_hash separately, OR by experiment_provenance_hash
+    #      for full-stack identity.
+    #
+    # GRACEFUL DEGRADATION: ``None`` when ANY of the 4 components is missing
+    # (pre-Phase-II / pre-Phase-4.4c.4 / pre-Phase-X.1 v2 / pre-Phase-V.A.4
+    # legacy records). Use ``compute_experiment_provenance_hash(record)``
+    # to compute on-demand for older records that have all 4 components
+    # populated.
+    #
+    # FINGERPRINT INVARIANT: this field IS an observation (composed from
+    # other observations). MUST NOT enter ``dedup.compute_fingerprint`` —
+    # same invariant as ``gate_reports`` / ``artifacts`` / ``cache_info`` /
+    # ``compatibility_fingerprint`` / ``signal_export_output_dir``.
+    #
+    # Index projection: ``index_entry()`` projects this field with 64-hex
+    # validation via ``CONTENT_HASH_RE``; malformed values surface as empty
+    # string "" (graceful degradation).
+    experiment_provenance_hash: Optional[str] = None
 
     # Phase V.1 L1.2 (2026-04-21): resolved ABSOLUTE path to the signal-export
     # output directory captured at RUN TIME (not re-resolved from the manifest
@@ -573,6 +624,21 @@ class ExperimentRecord:
                 )
                 else ""
             ),
+            # Phase X.3 / Phase D Empirical Trust (2026-05-05): surface
+            # experiment_provenance_hash for cross-experiment reproducibility
+            # filtering via ``hft-ops ledger list --provenance-hash <hex>``.
+            # Same regex gate + graceful-degradation pattern as
+            # compatibility_fingerprint (Phase V.A.4). Composed from 4
+            # other fingerprints by ``compute_experiment_provenance_hash``;
+            # see field docstring for composition formula.
+            "experiment_provenance_hash": (
+                self.experiment_provenance_hash
+                if (
+                    isinstance(self.experiment_provenance_hash, str)
+                    and bool(CONTENT_HASH_RE.match(self.experiment_provenance_hash))
+                )
+                else ""
+            ),
             # Phase 8A.0 (2026-04-20): extraction-cache observability.
             # Empty dict (not None) for pre-Phase-8A.0 records so
             # ``ledger list --cache-hit true`` has a stable shape. Full
@@ -623,8 +689,71 @@ class ExperimentRecord:
         }
 
 
+def compute_experiment_provenance_hash(record: "ExperimentRecord") -> Optional[str]:
+    """Compose ``experiment_provenance_hash`` from 4 existing fingerprints.
+
+    Phase X.3 / Phase D Empirical Trust (2026-05-05): the long-promised
+    Phase Y trust column. Composes:
+
+        - ``record.provenance.data_dir_hash``     (Phase 6 Provenance)
+        - ``record.feature_set_ref["content_hash"]``  (Phase 4.4c.4)
+        - ``record.compatibility_fingerprint``    (Phase V.A.4)
+        - ``record.training_config["model_config_hash"]``  (Phase X.1 v2)
+
+    via canonical-JSON SHA-256 (matching the ``canonical_hash`` SSoT
+    convention used everywhere else — content-hashed FeatureSet,
+    CompatibilityContract.fingerprint, FeatureImportanceArtifact, etc.).
+
+    Same data + same features + same architecture + same loss-tuning
+    invariants → same hash. Mutating ANY of the 4 components → different
+    hash. Enables cross-experiment reproducibility queries:
+
+        ``hft-ops ledger list --provenance-hash 43374f95...``  →
+        finds all records with this exact 4-fingerprint composition.
+
+    Args:
+        record: The ``ExperimentRecord`` to compose from.
+
+    Returns:
+        64-hex SHA-256 string, OR ``None`` if ANY of the 4 components is
+        missing (graceful degradation for pre-Phase-II / pre-Phase-4.4c.4 /
+        pre-Phase-X.1 v2 / pre-Phase-V.A.4 legacy records).
+
+    Per hft-rules §0 (reuse-first): delegates to existing
+    ``hft_contracts.canonical_hash.canonical_json_blob`` + ``sha256_hex``
+    SSoT — NO new canonical-form site. Per hft-rules §1 (single source of
+    truth): the 4 component fingerprints already exist on the record
+    surface — this function just composes them.
+    """
+    from hft_contracts.canonical_hash import canonical_json_blob, sha256_hex
+
+    data_export_fp = record.provenance.data_dir_hash if record.provenance else None
+    feature_set_content_hash = (record.feature_set_ref or {}).get("content_hash")
+    compatibility_fp = record.compatibility_fingerprint
+    model_config_hash = (record.training_config or {}).get("model_config_hash")
+
+    components = {
+        "data_export_fp": data_export_fp,
+        "feature_set_content_hash": feature_set_content_hash,
+        "compatibility_fp": compatibility_fp,
+        "model_config_hash": model_config_hash,
+    }
+
+    # Graceful degradation: if ANY component is None / empty string,
+    # the experiment isn't fully provenance-tracked yet (legacy records
+    # OR in-progress runs missing post-stage fingerprints). Return None
+    # rather than computing a hash over partial data — the consumer
+    # (CLI filter, reproducibility audit) can distinguish "no provenance"
+    # from "different provenance" via this null sentinel.
+    if not all(components.values()):
+        return None
+
+    return sha256_hex(canonical_json_blob(components))
+
+
 __all__ = [
     "ExperimentRecord",
     "RecordType",
     "INDEX_SCHEMA_VERSION",
+    "compute_experiment_provenance_hash",
 ]

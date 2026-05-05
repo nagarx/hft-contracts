@@ -283,6 +283,83 @@ def validate_provenance_present(metadata: dict) -> list[str]:
     return warnings
 
 
+def validate_idx_97_reserved(
+    sequences_path,
+    *,
+    strict: bool = False,
+) -> list[str]:
+    """Verify that feature index 97 is RESERVED 0.0 in the first sample.
+
+    Per CLAUDE.md root: "schema_version=3.0; idx 97 RESERVED 0.0 forever
+    post-G.1". Pre-Phase-O exports stored ``schema_version`` as a numeric
+    value at idx 97 (e.g., 2.2). Phase O Cycle 1 promoted schema_version
+    to JSON metadata STRING and reserved idx 97 to a constant 0.0 forever.
+
+    A buggy producer that emits ``sequences[:, :, 97] = 1.5`` would pass
+    ``validate_export_contract`` (which only inspects metadata.json, never
+    the NPY values). This validator closes that gap by spot-sampling the
+    first row's idx 97.
+
+    Args:
+        sequences_path: Path to a *_sequences.npy file (the NPY array,
+            not metadata).
+        strict: If True, raise ``ContractError`` on idx-97-not-zero.
+            Default False — emits warnings only (per hft-rules §8 +
+            back-compat with pre-Phase-O archive consumption where
+            idx 97 was the schema_version value).
+
+    Returns:
+        List of warnings (empty if all OK).
+
+    Raises:
+        ContractError: If ``strict=True`` and idx 97 != 0.0.
+        FileNotFoundError: If the sequences file doesn't exist.
+        IndexError: If the array has fewer than 98 features (caller bug).
+
+    Phase X.3 Empirical Trust (2026-05-05) — Phase C.3.
+    """
+    import numpy as np
+    from pathlib import Path
+
+    sequences_path = Path(sequences_path)
+    if not sequences_path.exists():
+        raise FileNotFoundError(
+            f"validate_idx_97_reserved: sequences file not found: {sequences_path}"
+        )
+
+    # mmap_mode='r' gives O(1) header read without loading the full array
+    arr = np.load(sequences_path, mmap_mode="r")
+
+    if arr.ndim != 3:
+        return [
+            f"Cannot validate idx 97 on {sequences_path.name}: expected 3D "
+            f"(N, T, F) array, got shape {arr.shape}"
+        ]
+
+    n_features = arr.shape[2]
+    if n_features < 98:
+        # Pre-stable-features regime; idx 97 doesn't exist
+        return []
+
+    # Spot-sample first row of first sequence
+    first_value = float(arr[0, 0, 97])
+
+    if first_value == 0.0:
+        return []  # Correct — idx 97 is RESERVED 0.0 per Phase O Cycle 1
+
+    msg = (
+        f"Idx 97 RESERVED 0.0 violation in {sequences_path.name}: "
+        f"first sample has feature[97]={first_value!r} (expected 0.0). "
+        f"Pre-Phase-O exports may have stored schema_version here (legacy "
+        f"value). Post-Phase-O, idx 97 is RESERVED 0.0 forever."
+    )
+
+    if strict:
+        raise ContractError(msg)
+
+    return [msg]
+
+
 def validate_export_contract(
     metadata: dict,
     *,

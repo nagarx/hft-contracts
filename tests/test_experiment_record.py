@@ -186,10 +186,13 @@ class TestIndexEntryCompleteness:
             created_at="2026-04-20T00:00:00+00:00",
         )
         projection = fixture.index_entry()
-        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.3.0":
+        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.5.0":
         # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): +cache_info (additive).
         # 1.1.0 → 1.2.0 (Phase 8A.1, 2026-04-20): +sweep_failure_info (additive).
         # 1.2.0 → 1.3.0 (Phase 8C-α C.2, 2026-04-20): +artifact_kinds (additive).
+        # 1.3.0 → 1.4.0 (Phase V.A.4, 2026-04-21): +compatibility_fingerprint (additive).
+        # 1.4.0 → 1.5.0 (Phase X.3 / Phase D, 2026-05-05): +experiment_provenance_hash
+        #   (additive) — composes 4 fingerprints for cross-experiment reproducibility.
         expected_top_level = {
             "experiment_id",
             "name",
@@ -216,6 +219,7 @@ class TestIndexEntryCompleteness:
             "sweep_failure_info",      # Phase 8A.1 — parallel-sweep failure taxonomy
             "artifact_kinds",          # Phase 8C-α C.2 — post-training artifact kinds
             "compatibility_fingerprint",  # Phase V.A.4 — Signal-boundary compatibility trust column
+            "experiment_provenance_hash",  # Phase X.3 / Phase D — Phase Y composition (4-fp identity)
         }
         actual_top_level = set(projection.keys())
 
@@ -223,8 +227,8 @@ class TestIndexEntryCompleteness:
         removed = expected_top_level - actual_top_level
 
         assert not added and not removed, (
-            f"Phase 8B/8A.0/8A.1/8C-α/V.A.4: index_entry() key-set drifted from "
-            f"INDEX_SCHEMA_VERSION=1.4.0 golden. Added: {sorted(added)}; "
+            f"Phase 8B/8A.0/8A.1/8C-α/V.A.4/X.3-D: index_entry() key-set drifted from "
+            f"INDEX_SCHEMA_VERSION=1.5.0 golden. Added: {sorted(added)}; "
             f"Removed: {sorted(removed)}. If this change is intentional, "
             f"(a) bump INDEX_SCHEMA_VERSION MINOR (or MAJOR for removals), "
             f"(b) update this test's expected_top_level set, "
@@ -419,15 +423,16 @@ class TestIndexEntry:
                 f"string; got {entry['compatibility_fingerprint']!r}"
             )
 
-    def test_index_schema_version_bumped_to_1_4_0(self):
-        """Phase V.A.4 adds compatibility_fingerprint to the index projection —
-        bumps INDEX_SCHEMA_VERSION MINOR 1.3.0 → 1.4.0 per SemVer additive
-        policy (root CLAUDE.md §Change-Coordination Checklist). hft-ops ledger
+    def test_index_schema_version_bumped_to_1_5_0(self):
+        """Phase X.3 / Phase D Empirical Trust (2026-05-05) adds
+        ``experiment_provenance_hash`` to the index projection — bumps
+        INDEX_SCHEMA_VERSION MINOR 1.4.0 → 1.5.0 per SemVer additive policy
+        (root CLAUDE.md §Change-Coordination Checklist). hft-ops ledger
         envelope auto-rebuild triggers on MAJOR.MINOR mismatch."""
         from hft_contracts.experiment_record import INDEX_SCHEMA_VERSION
 
-        assert INDEX_SCHEMA_VERSION == "1.4.0", (
-            f"Expected INDEX_SCHEMA_VERSION='1.4.0' (Phase V.A.4 bump); "
+        assert INDEX_SCHEMA_VERSION == "1.5.0", (
+            f"Expected INDEX_SCHEMA_VERSION='1.5.0' (Phase X.3/Phase D bump); "
             f"got {INDEX_SCHEMA_VERSION!r}. If intentional, update this "
             f"test + root CLAUDE.md Last-verified stamp + "
             f"pipeline_contract.toml changelog entry."
