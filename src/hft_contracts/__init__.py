@@ -21,7 +21,7 @@ Usage:
     from hft_contracts import parse_iso8601_utc, is_after_cutoff
 """
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
@@ -324,6 +324,9 @@ __all__ = [
     "MetricCIBound",
     "TestMetricsCIArtifact",
     "TEST_METRICS_CI_SCHEMA_VERSION",
+    "PairwiseResultRecord",
+    "PairwiseCompareArtifact",
+    "PAIRWISE_COMPARE_SCHEMA_VERSION",
     "FeatureSet",
     "FeatureSetRef",
     "FeatureSetAppliesTo",
@@ -406,6 +409,11 @@ from hft_contracts.test_metrics_ci_artifact import (
     MetricCIBound,
     TestMetricsCIArtifact,
     TEST_METRICS_CI_SCHEMA_VERSION,
+)
+from hft_contracts.pairwise_compare_artifact import (
+    PairwiseResultRecord,
+    PairwiseCompareArtifact,
+    PAIRWISE_COMPARE_SCHEMA_VERSION,
 )
 from hft_contracts.feature_sets import (
     FeatureSet,

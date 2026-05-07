@@ -11,6 +11,73 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-05-07
+
+### Added (Phase 2 P2.C — Cyclelet B K-way pairwise-compare artifact contract)
+
+- **`hft_contracts.pairwise_compare_artifact`** (NEW module) — frozen-
+  dataclass contract for Phase 2 P2.C K-way pairwise-comparison artifacts
+  produced by `lobtrainer.analysis.stat_rigor.pairwise.compare_k_way`.
+  Mirrors the v2.4.0 `TestMetricsCIArtifact` pattern.
+  - **`PairwiseResultRecord`** — per-pair (treatment_a_idx, treatment_b_idx,
+    treatment_a_label, treatment_b_label, statistic_a, statistic_b, delta,
+    delta_ci_low, delta_ci_high, p_value_raw, p_value_bh, n_nonfinite_replaced).
+    `__post_init__` validates finiteness + index ordering + delta CI invariant
+    + p-value range + treatment label non-empty. `from_hft_metrics_result`
+    classmethod bridges runtime `hft_metrics.pairwise.PairwiseResult` → artifact.
+  - **`PairwiseCompareArtifact`** — full K-way artifact. Fields:
+    schema_version, method, metric_name, block_length (+source), n_bootstraps,
+    alpha, seed, n_treatments (K>=2), n_samples_paired/raw, n_dropped_nonfinite,
+    drop_fraction, primary_horizon_idx; **parallel-indexed Phase Y composability
+    tuples**: `parent_experiment_ids`, `parent_compatibility_fingerprints`,
+    `parent_model_config_hashes` (Optional[str] for pre-Phase-Q.6.5 sklearn);
+    `paired_compat_fingerprint` (SHARED — all K must equal, validated);
+    `paired_labels_sha256` (verifies all K consume same labels);
+    `pairs: Tuple[PairwiseResultRecord, ...]` length K*(K-1)/2;
+    `treatment_labels`; `timestamp_utc`; `method_caveats`.
+    Construction-time validation rejects degenerate parameters per hft-rules
+    §5/§8 (n_treatments<2, K-pair count mismatch, parallel-tuple length
+    mismatch, alpha ∉ (0,1), invalid SHA-256 hex, mismatched compat_fp,
+    drop_fraction inconsistency).
+  - `content_hash()` delegates to `hft_contracts.canonical_hash` SSoT.
+  - `save()` delegates to `hft_contracts.atomic_io.atomic_write_json` SSoT.
+  - `from_dict()` migration shim accepts forward-compatible additive
+    schema bumps; preserves `Optional[str]` None values for sklearn
+    pre-Phase-Q.6.5 model_config_hashes.
+  - `get_pair(a_idx, b_idx)` + `get_pair_by_labels(label_a, label_b)`
+    O(K^2) lookup helpers.
+- **`PAIRWISE_COMPARE_SCHEMA_VERSION = "1"`** module constant.
+- **`pipeline_contract.toml::[artifacts.pairwise_compare_schema]`** —
+  registers the artifact with `kind = "pairwise_compare"` for hft-ops
+  ledger routing. Companion to the hft-ops `_POST_STAGE_ARTIFACT_PATTERNS`
+  row (registered separately in hft-ops repo).
+- **Phase Y composability**: artifact integrates with future
+  `experiment_provenance_hash` graph as a "comparison node" with K
+  parent provenance-hash references via parallel-indexed `parent_*` tuples.
+- **30+ new tests** at `tests/test_pairwise_compare_artifact.py`.
+
+### Architectural notes
+
+- **K-arbitrary support** (Round 2 Agent B finding): K=2 is special case
+  of K-way; K>=3 enables meaningful BH FDR correction (K=2 BH ≡ raw p).
+- **Strict `compat_fp` invariant** (Round 2 Agent B HIGH finding): all K
+  treatments must share `compatibility_fingerprint` (paired comparison
+  requires shared paired-data) — `__post_init__` raises `ValueError`
+  on divergence with diagnostic listing the mismatching fingerprints.
+- **Effect size in artifact** (Round 2 Agent B HIGH finding): per-pair
+  surface `statistic_a`, `statistic_b`, `delta`, `delta_ci_low`,
+  `delta_ci_high` — without effect size, BH q-value alone tells nothing
+  about practical relevance (per "many experiments empirically traceable"
+  user mandate).
+
+### Notes
+
+- **No SCHEMA_VERSION (`_generated.py`) bump**: P2.C artifact is a
+  POST-EXPERIMENT statistical-comparison artifact; does NOT modify the
+  data contract. Schema version remains at `3.0`.
+- **Cycle origin**: Plan v4 §4.3 (`PHASE_2_STAT_RIGOR_PLAN.md`) +
+  Round 2 architectural critique (3 agents → 6 HIGH revisions applied).
+
 ## [2.4.0] — 2026-05-07
 
 ### Added (Phase 2 P2.A — Cyclelet B bootstrap-CI artifact contract)
