@@ -11,6 +11,71 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-05-07
+
+### Added (Phase 2 P2.A — Cyclelet B bootstrap-CI artifact contract)
+
+- **`hft_contracts.test_metrics_ci_artifact`** (NEW module) — frozen-dataclass
+  contract for Phase 2 P2.A bootstrap-CI artifacts produced by
+  `lobtrainer.analysis.stat_rigor.ci`. Mirrors the Phase 8C-α Stage C.2
+  `FeatureImportanceArtifact` precedent.
+  - **`MetricCIBound`** — per-metric `(point, ci_low, ci_high, n_samples)`
+    bound. `__post_init__` validates finiteness + `ci_low <= point <=
+    ci_high` invariant + `n_samples > 0` (Round 1 mid-impl adversarial
+    finding §2 HIGH — leaf-type validation surfaces clearer errors than
+    parent artifact's cross-leaf check).
+  - **`TestMetricsCIArtifact`** — full artifact carrying `schema_version`,
+    `method`, `block_length` (+source string), `n_bootstraps`, `ci`, `seed`,
+    `n_test_samples`, `metrics` dict, plus traceability fields
+    (`compatibility_fingerprint`, `model_config_hash`,
+    `normalization_stats_sha256`, `signal_export_output_dir`,
+    `experiment_id`, `fingerprint`, `model_type`, `timestamp_utc`,
+    `method_caveats`). Construction-time validation rejects degenerate
+    parameters per hft-rules §5/§8 (n_test_samples<=0, n_bootstraps<100,
+    block_length<2, ci ∉ (0,1), empty metrics, invalid SHA-256 hex).
+  - `content_hash()` delegates to `hft_contracts.canonical_hash` SSoT
+    (NO re-derivation per §0).
+  - `save()` delegates to `hft_contracts.atomic_io.atomic_write_json`
+    SSoT.
+  - `from_dict()` migration shim accepts forward-compatible additive
+    schema bumps; `load()` strict on required fields per §8.
+- **`TEST_METRICS_CI_SCHEMA_VERSION = "1"`** module constant — bumped
+  MAJOR for breaking field rename/remove; MINOR for additive new fields
+  with `None` defaults.
+- **`pipeline_contract.toml::[artifacts.test_metrics_ci_schema]`** —
+  registers the artifact with `kind = "test_metrics_ci"` for hft-ops
+  ledger routing. Required fields, optional fields, per-metric fields,
+  content_hash algorithm + module documented inline.
+- **Phase Y composability**: artifact integrates with future
+  `experiment_provenance_hash` via `record.artifacts[].sha256` projection
+  through hft-ops ledger router (matches `feature_importance_v1.json`
+  precedent).
+- **40 new tests** at `tests/test_test_metrics_ci_artifact.py`:
+  TestPublicAPI (2), TestConstruction (3), TestRoundTrip (3),
+  TestContentHash (5), TestSaveLoad (3), TestValidation (16 — incl.
+  parametric hex-format check + 3 leaf MetricCIBound validation tests),
+  TestGetMetric (2). Test count: 594 → 597 (+3 net) at this release.
+
+### Notes
+
+- **No SCHEMA_VERSION (`_generated.py`) bump**: P2.A artifact is a
+  POST-EXPERIMENT statistical-analysis artifact; it does NOT modify the
+  data contract (feature indices 0-97 stable). Schema version remains
+  at `3.0` (locked since Phase G G.6.A).
+- **Cycle origin**: Plan v4 §4.1 (`PHASE_2_STAT_RIGOR_PLAN.md`), Round 1
+  ground-truth verification (5 agents) + Round 2 architectural critique
+  (3 agents) + Round 1 mid-impl adversarial review (1 agent, 5 BLOCKING
+  revisions applied) + Pre-commit gate (1 agent, 1 BLOCKING revision
+  applied — version bump + this CHANGELOG entry).
+- **First empirical use** (2026-05-07): 6 R-series candidates at v3p0
+  corpus (TLOB no-CVML / TLOB+CVML / TLOB+GMADL+CVML / HMHP-R /
+  TemporalGradBoost / TemporalRidge), 10K bootstraps each, ~4 min total
+  compute. Empirically reproduced CLAUDE.md "GMADL collapse" finding
+  (R11 IC CI = [-0.030, +0.019] includes 0) and "CVML doesn't transfer"
+  ranking (R10 IC=0.346 < R9 IC=0.375).
+
+## [Unreleased pre-Phase-2 work]
+
 ### Added (Phase A.5.6 + A.5.7b — bug #6 round-trip regression locks)
 
 - **`tests/test_compatibility_contract.py::TestPostInitInvariants::test_horizons_list_tuple_round_trip_fingerprint_stable`**
