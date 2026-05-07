@@ -12,11 +12,15 @@ Validation hierarchy:
     validate_metadata_completeness() — all required fields present
     validate_label_encoding()       — label strategy matches contract
     validate_provenance_present()   — provenance block is present
+    assert_finite_array()           — fail-loud on NaN/Inf in numpy arrays
+                                       (#PY-63 SSoT extraction 2026-05-07)
 """
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
+
+import numpy as np
 
 from hft_contracts._generated import (
     EXPORT_METADATA_NORMALIZATION_FIELDS,
@@ -581,3 +585,59 @@ def validate_any_export_contract(
         return validate_off_exchange_export_contract(metadata)
     else:
         return validate_export_contract(metadata, strict_completeness=strict_completeness)
+
+
+def assert_finite_array(
+    arr: np.ndarray,
+    *,
+    name: str,
+    extra_diagnostic: Optional[str] = None,
+) -> None:
+    """Fail-loud on NaN/Inf in a numpy array per hft-rules §8.
+
+    SSoT extraction 2026-05-07 (#PY-63): consolidates 7 sites that had
+    duplicated this idiom across producer-side fail-loud checks. Previously
+    each site inlined the pattern with slightly different error message
+    templates. This helper standardizes on:
+        "{name}: array contains {n_nan} NaN, {n_inf} Inf out of {N} total
+        — input invariant violation. {extra_diagnostic}"
+
+    Per hft-rules §8 ("Never silently drop, clamp, or 'fix' data"): silent
+    NaN/Inf substitution masks upstream data corruption as legitimate model
+    output, biasing IC/DA/correlation metrics downstream toward 0.0. Hard
+    invariants at producer boundaries should raise, not silently zero.
+
+    Args:
+        arr: Array to validate. None passthrough is NOT supported — caller
+            must guard for None before invoking.
+        name: Identifier for error messages (e.g., "predicted_returns",
+            "SignalExporter._infer_regression"). Required keyword-only.
+        extra_diagnostic: Optional extra context appended to the error
+            message (e.g., suggested debugging path, model_type echo).
+
+    Raises:
+        ValueError: If arr contains any NaN or Inf, with diagnostic counts.
+
+    Example:
+        >>> from hft_contracts.validation import assert_finite_array
+        >>> import numpy as np
+        >>> assert_finite_array(np.array([1.0, 2.0, 3.0]), name="x")
+        >>> assert_finite_array(
+        ...     np.array([1.0, np.nan]),
+        ...     name="x",
+        ...     extra_diagnostic="Investigate upstream producer.",
+        ... )
+        Traceback (most recent call last):
+            ...
+        ValueError: x: array contains 1 NaN, 0 Inf out of 2 total ...
+    """
+    if not np.all(np.isfinite(arr)):
+        n_nan = int(np.isnan(arr).sum())
+        n_inf = int(np.isinf(arr).sum())
+        msg = (
+            f"{name}: array contains {n_nan} NaN, {n_inf} Inf "
+            f"out of {arr.size} total — input invariant violation."
+        )
+        if extra_diagnostic:
+            msg += f" {extra_diagnostic}"
+        raise ValueError(msg)

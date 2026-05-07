@@ -438,10 +438,13 @@ class TestInputValidation:
 
         The EPS guard handles NaN base prices (returns 0.0), but Inf in the
         future window with valid base prices produces Inf results.
+
+        #PY-63 (2026-05-07): error message format updated to match the
+        SSoT helper at hft_contracts.validation.assert_finite_array.
         """
         fp = np.full((10, 16), 100.0)
         fp[:, 6:] = np.inf  # Inf in future window
         # h=1, k=5: past=mean(100×6)=100, future=mean([100,100,100,100,100,Inf])=Inf
         # result = (Inf - 100) / 100 * 10000 = Inf → caught by isfinite check
-        with pytest.raises(ValueError, match="non-finite values"):
+        with pytest.raises(ValueError, match="input invariant violation"):
             LabelFactory.multi_horizon(fp, horizons=[1], smoothing_window=5)

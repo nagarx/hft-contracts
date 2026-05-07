@@ -405,16 +405,18 @@ class LabelFactory:
         ]
         out = np.column_stack(results)
 
-        # Defense in depth: catch non-finite from NaN/Inf in forward_prices
-        if not np.isfinite(out).all():
-            nan_count = int(np.isnan(out).sum())
-            inf_count = int(np.isinf(out).sum())
-            raise ValueError(
-                f"multi_horizon produced non-finite values ({nan_count} NaN, "
-                f"{inf_count} Inf) with horizons={horizons}, "
-                f"k={smoothing_window}, fp.shape={forward_prices.shape}. "
-                f"Check forward_prices for NaN/Inf entries."
-            )
+        # Defense in depth: catch non-finite from NaN/Inf in forward_prices.
+        # #PY-63 (2026-05-07): migrated to validation.assert_finite_array SSoT.
+        from hft_contracts.validation import assert_finite_array
+        assert_finite_array(
+            out,
+            name="LabelFactory.multi_horizon.out",
+            extra_diagnostic=(
+                f"horizons={horizons}, k={smoothing_window}, "
+                f"fp.shape={forward_prices.shape}. Check forward_prices "
+                f"for NaN/Inf entries."
+            ),
+        )
 
         return out
 
