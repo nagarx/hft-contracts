@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "rust_commit": "c62a1c0d9ed1b9b75dc9dabace78bf51d78ceead",
+  "rust_crate_version": "0.1.0",
+  "generated_at_utc": "2026-05-07T23:37:23Z",
+  "description": "CR6 / NEW-CRITICAL-2 cross-language LabelFactory parity fixture. Rust outputs are RAW DECIMAL FRACTIONS (e.g., 0.01 = 1%); Python parity test must multiply by 10000.0 before comparison to LabelFactory.{smoothed,point,mean,peak}_return outputs (basis points). Schema: see DESIGN.md sibling. Regenerate: cargo test -p hft-labeling --test parity_fixture_gen -- --ignored --nocapture.",
+  "scenarios": [
+    {
+      "name": "monotone_k2_h2_n5",
+      "description": "Strictly increasing prices [100..110]; deterministic smoke test.",
+      "k": 2,
+      "horizons": [
+        2
+      ],
+      "n_samples": 5,
+      "prices_total": 11,
+      "prices_flat": [
+        100.0,
+        101.0,
+        102.0,
+        103.0,
+        104.0,
+        105.0,
+        106.0,
+        107.0,
+        108.0,
+        109.0,
+        110.0
+      ],
+      "forward_prices_2d": [
+        [
+          100.0,
+          101.0,
+          102.0,
+          103.0,
+          104.0
+        ],
+        [
+          101.0,
+          102.0,
+          103.0,
+          104.0,
+          105.0
+        ],
+        [
+          102.0,
+          103.0,
+          104.0,
+          105.0,
+          106.0
+        ],
+        [
+          103.0,
+          104.0,
+          105.0,
+          106.0,
+          107.0
+        ],
+        [
+          104.0,
+          105.0,
+          106.0,
+          107.0,
+          108.0
+        ]
+      ],
+      "rust_labels_decimal": {
+        "smoothed_return": {
+          "h2": [
+            0.019801980198019802,
+            0.0196078431372549,
+            0.019417475728155338,
+            0.019230769230769232,
+            0.01904761904761905
+          ]
+        },
+        "point_return": {
+          "h2": [
+            0.0196078431372549,
+            0.019417475728155338,
+            0.019230769230769232,
+            0.01904761904761905,
+            0.018867924528301886
+          ]
+        },
+        "mean_return": {
+          "h2": [
+            0.014705882352941176,
+            0.014563106796116505,
+            0.014423076923076924,
+            0.014285714285714285,
+            0.014150943396226415
+          ]
+        },
+        "dominant_return": {
+          "h2": [
+            0.0196078431372549,
+            0.019417475728155338,
+            0.019230769230769232,
+            0.01904761904761905,
+            0.018867924528301886
+          ]
+        }
+      }
+    },
+    {
+      "name": "oscillating_k2_h2_n5",
+      "description": "Alternating prices [100,102,98,102,98,...]; exercises dominant_return min-branch at rows 1+3 (per CR6 final-review Q1 finding 2026-05-08).",
+      "k": 2,
+      "horizons": [
+        2
+      ],
+      "n_samples": 5,
+      "prices_total": 11,
+      "prices_flat": [
+        100.0,
+        102.0,
+        98.0,
+        102.0,
+        98.0,
+        102.0,
+        98.0,
+        102.0,
+        98.0,
+        102.0,
+        98.0
+      ],
+      "forward_prices_2d": [
+        [
+          100.0,
+          102.0,
+          98.0,
+          102.0,
+          98.0
+        ],
+        [
+          102.0,
+          98.0,
+          102.0,
+          98.0,
+          102.0
+        ],
+        [
+          98.0,
+          102.0,
+          98.0,
+          102.0,
+          98.0
+        ],
+        [
+          102.0,
+          98.0,
+          102.0,
+          98.0,
+          102.0
+        ],
+        [
+          98.0,
+          102.0,
+          98.0,
+          102.0,
+          98.0
+        ]
+      ],
+      "rust_labels_decimal": {
+        "smoothed_return": {
+          "h2": [
+            -0.006666666666666714,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "point_return": {
+          "h2": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mean_return": {
+          "h2": [
+            0.02040816326530612,
+            -0.0196078431372549,
+            0.02040816326530612,
+            -0.0196078431372549,
+            0.02040816326530612
+          ]
+        },
+        "dominant_return": {
+          "h2": [
+            0.04081632653061224,
+            -0.0392156862745098,
+            0.04081632653061224,
+            -0.0392156862745098,
+            0.04081632653061224
+          ]
+        }
+      }
+    }
+  ]
+}
