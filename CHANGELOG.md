@@ -11,6 +11,95 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-05-09
+
+### Added (Phase X.3 / REFINED-PLUS Sub-cycle 2 — Phase Y composer fail-loud opt-in + structured provenance diagnostic)
+
+- **`hft_contracts.experiment_record.ProvenanceDiagnostic`** (NEW frozen
+  dataclass) — structured diagnostic describing which
+  `experiment_provenance_hash` components are present + valid.
+  Fields: `complete: bool`, `missing: FrozenSet[str]`,
+  `invalid_format: FrozenSet[str]`. Class-level
+  `COMPONENT_NAMES: ClassVar[FrozenSet[str]]` is the SSoT for the 4
+  fingerprint sources (`data_export_fp` / `feature_set_content_hash` /
+  `compatibility_fp` / `model_config_hash`) per hft-rules §1 — eliminates
+  magic-string drift between composer + caller.
+- **`hft_contracts.experiment_record.diagnose_provenance_completeness(record)`**
+  (NEW function) — returns `ProvenanceDiagnostic`. Empty-string values count
+  as `missing` (matches producer-side convention: un-populated 64-hex
+  string surfaces as `None` or `""`). Invalid-format detection consumes
+  `hft_contracts.signal_manifest.CONTENT_HASH_RE` (lowercase 64-hex
+  SHA-256). Closes PHASE_P_BACKLOG #PY-49 mitigation (note at L891) — lifts the
+  inline diagnostic from `hft-ops/src/hft_ops/cli.py:639-666` into a
+  stable home; cli.py DRY refactor lands in Sub-cycle 4b alongside
+  composer caller wiring).
+
+### Changed (additive — back-compat preserved)
+
+- **`compute_experiment_provenance_hash(record, *, required: Optional[FrozenSet[str]] = None)`** —
+  added the keyword-only `required` parameter. When `None` (default),
+  preserves existing silent-None graceful-degradation behavior for legacy
+  records (zero back-compat risk). When set, raises `ValueError` on
+  missing or invalid-format components in the required-set, plus on
+  unknown component names. Closes the
+  `lobmodels.registry.protocols.OrchestratorContract` `requires_*`
+  contract pre-committed by Sub-cycle 1a — Sub-cycle 4b composer caller
+  wiring will consume this with `required=ProvenanceDiagnostic.COMPONENT_NAMES`
+  (or a subset per per-trainer `requires_*` flags).
+
+### API surface
+
+- **Package-level re-export**: `compute_experiment_provenance_hash` /
+  `diagnose_provenance_completeness` / `ProvenanceDiagnostic` now
+  importable via `from hft_contracts import ...` (matches the convention
+  established for `CompatibilityContract`, `FeatureImportance`, etc.).
+  Submodule import paths remain unchanged.
+
+### Tests
+
+- **`tests/test_experiment_record.py`** — 23 NEW tests collected in 4 NEW
+  test classes (20 unique `def test_*` declarations; parametric expansion of
+  `test_each_component_missing_via_none` over 4 components yields 4 cases).
+  File total: 56 → 79 collected (verified 79 passed in 0.17s):
+  - `TestProvenanceDiagnostic` (3) — `COMPONENT_NAMES` SSoT, frozen-dataclass
+    immutability via `dataclasses.FrozenInstanceError`, `FrozenSet` field types
+  - `TestDiagnoseProvenanceCompleteness` (9) — happy path + parametric
+    each-component-missing (4) + empty-string-as-missing + invalid-format
+    uppercase / too-short + `provenance=None` access guard
+  - `TestComputeExperimentProvenanceHashRequiredArg` (9) — `required=None`
+    back-compat, `required=frozenset()` equivalence, missing-component
+    raises, invalid-format raises, unknown-name raises, all-required-passes,
+    hash-identical-with-vs-without-required, partial-required-set behavior,
+    multi-component error-message lists all
+  - `TestSubCycle2PackageSurface` (2) — new symbols in `__all__` (module +
+    package level)
+
+### Adversarial validation
+
+- 7-agent prep round (3 investigation + 4 adversarial) post-Cycle-C1
+  2026-05-09 night converged on REFINED HYBRID resolution: ship
+  pre-committed `required` arg AS PROMISED + ADD Alt-2 sibling
+  `diagnose_provenance_completeness`. Doc-alignment-auditor verified the
+  proposed signature does not break the single production caller
+  (`hft-ops/cli.py:635`) and all back-compat tests in
+  `hft-ops/tests/test_phase_y_harvest_compose.py`.
+- Mid-impl + pre-commit gates per saved feedback memory
+  `feedback_final_adversarial_validation_round.md` Standard 2-gate cadence.
+
+### Migration
+
+- **NO API breakage**. Existing callers passing `record` positionally
+  continue to work. Existing tests in
+  `hft-ops/tests/test_phase_y_harvest_compose.py` exercising the
+  silent-None graceful-degradation path continue to pass.
+- **Forward path**: callers wanting fail-loud opt-in pass
+  `required=ProvenanceDiagnostic.COMPONENT_NAMES` (or a subset).
+  Sub-cycle 4b will refactor `hft-ops/src/hft_ops/cli.py:639-666` to
+  consume the new `diagnose_provenance_completeness` SSoT (DRY win +
+  closes PHASE_P_BACKLOG #PY-49 mitigation (note at L891)).
+
+---
+
 ## [2.5.0] — 2026-05-07
 
 ### Added (Phase 2 P2.C — Cyclelet B K-way pairwise-compare artifact contract)

@@ -33,7 +33,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
 
 from hft_contracts.atomic_io import atomic_write_json
 from hft_contracts.provenance import Provenance
@@ -689,7 +689,109 @@ class ExperimentRecord:
         }
 
 
-def compute_experiment_provenance_hash(record: "ExperimentRecord") -> Optional[str]:
+@dataclass(frozen=True)
+class ProvenanceDiagnostic:
+    """Diagnostic result describing which provenance-hash components are present + valid.
+
+    Phase X.3 / REFINED-PLUS Sub-cycle 2 (2026-05-09 night): structured diagnostic
+    paired with :func:`compute_experiment_provenance_hash`. Closes PHASE_P_BACKLOG
+    L891 mitigation for #PY-49 (cli.py:636-644 inline missing-list duplication
+    becomes consumable from a single home).
+
+    Component names live as the :attr:`COMPONENT_NAMES` ``ClassVar`` constant —
+    the SSoT for the 4 fingerprint sources — so callers cannot typo-drift
+    relative to the composer (per hft-rules §1).
+
+    Used by:
+      - :func:`compute_experiment_provenance_hash` for ``required`` validation.
+      - hft-ops ``cli.py::_record_experiment`` warning diagnostic (replaces
+        inline missing-list logic at cli.py:639-666; Sub-cycle 4b refactor).
+      - Future fail-loud callers that want structured missing/invalid info
+        without raising.
+
+    Empty-string values count as **missing** (mirrors the composer's existing
+    ``if not all(components.values())`` semantics — producer-side convention
+    is that an un-populated 64-hex string surfaces as ``None`` or ``""``).
+
+    Attributes:
+        complete: True iff all 4 components are present + non-empty + valid
+            lowercase 64-hex SHA-256.
+        missing: ``FrozenSet`` of component names whose value is None/empty.
+        invalid_format: ``FrozenSet`` of component names whose value is present
+            but does not match :data:`hft_contracts.signal_manifest.CONTENT_HASH_RE`
+            (lowercase 64-hex SHA-256).
+    """
+
+    COMPONENT_NAMES: ClassVar[FrozenSet[str]] = frozenset({
+        "data_export_fp",
+        "feature_set_content_hash",
+        "compatibility_fp",
+        "model_config_hash",
+    })
+
+    complete: bool
+    missing: FrozenSet[str]
+    invalid_format: FrozenSet[str]
+
+
+def _extract_provenance_components(record: "ExperimentRecord") -> Dict[str, Optional[str]]:
+    """Internal helper: extract the 4 fingerprint components from a record.
+
+    Single source of truth for component-extraction semantics. Both
+    :func:`diagnose_provenance_completeness` and
+    :func:`compute_experiment_provenance_hash` consume this helper so they
+    cannot disagree on what counts as "present" vs "missing".
+    """
+    return {
+        "data_export_fp": record.provenance.data_dir_hash if record.provenance else None,
+        "feature_set_content_hash": (record.feature_set_ref or {}).get("content_hash"),
+        "compatibility_fp": record.compatibility_fingerprint,
+        "model_config_hash": (record.training_config or {}).get("model_config_hash"),
+    }
+
+
+def diagnose_provenance_completeness(record: "ExperimentRecord") -> ProvenanceDiagnostic:
+    """Diagnose which provenance-hash components are present + valid.
+
+    Phase X.3 / REFINED-PLUS Sub-cycle 2 (2026-05-09 night): the SSoT validator
+    for the 4 components that :func:`compute_experiment_provenance_hash`
+    composes. Lives alongside the composer per PHASE_P_BACKLOG L891 mitigation
+    (#PY-49 + #PY-91).
+
+    Empty-string values are classified as **missing**, not **invalid_format** —
+    matches the composer's existing ``if not all(components.values())`` semantics
+    and reflects the producer-side convention that an un-populated 64-hex string
+    surfaces as ``None`` or ``""``.
+
+    Args:
+        record: The :class:`ExperimentRecord` to diagnose.
+
+    Returns:
+        :class:`ProvenanceDiagnostic` with ``complete`` / ``missing`` /
+        ``invalid_format`` fields.
+    """
+    components = _extract_provenance_components(record)
+
+    missing = frozenset(name for name, value in components.items() if not value)
+    invalid_format = frozenset(
+        name
+        for name, value in components.items()
+        if value and not CONTENT_HASH_RE.match(value)
+    )
+    complete = not missing and not invalid_format
+
+    return ProvenanceDiagnostic(
+        complete=complete,
+        missing=missing,
+        invalid_format=invalid_format,
+    )
+
+
+def compute_experiment_provenance_hash(
+    record: "ExperimentRecord",
+    *,
+    required: Optional[FrozenSet[str]] = None,
+) -> Optional[str]:
     """Compose ``experiment_provenance_hash`` from 4 existing fingerprints.
 
     Phase X.3 / Phase D Empirical Trust (2026-05-05): the long-promised
@@ -711,43 +813,76 @@ def compute_experiment_provenance_hash(record: "ExperimentRecord") -> Optional[s
         ``hft-ops ledger list --provenance-hash 43374f95...``  →
         finds all records with this exact 4-fingerprint composition.
 
+    REFINED-PLUS Sub-cycle 2 (2026-05-09 night): added the keyword-only
+    ``required`` parameter for fail-loud opt-in. When ``required`` is set,
+    missing or invalid-format components in the required-set raise
+    :class:`ValueError` instead of silently returning ``None``. Closes the
+    :class:`lobmodels.registry.protocols.OrchestratorContract` ``requires_*``
+    contract pre-committed by Sub-cycle 1a (Phase Y composability).
+
     Args:
-        record: The ``ExperimentRecord`` to compose from.
+        record: The :class:`ExperimentRecord` to compose from.
+        required: Optional ``FrozenSet`` of component names that MUST be
+            present and valid lowercase 64-hex SHA-256. When ``None``
+            (default), preserves silent-None graceful-degradation back-compat.
+            When provided, raises ``ValueError`` listing missing +
+            invalid-format component names. Valid names are
+            :attr:`ProvenanceDiagnostic.COMPONENT_NAMES`; unknown names also
+            raise ``ValueError``.
 
     Returns:
-        64-hex SHA-256 string, OR ``None`` if ANY of the 4 components is
-        missing (graceful degradation for pre-Phase-II / pre-Phase-4.4c.4 /
-        pre-Phase-X.1 v2 / pre-Phase-V.A.4 legacy records).
+        64-hex SHA-256 string when all 4 components are present and valid,
+        OR ``None`` if ``required is None`` AND any component is
+        missing/invalid (graceful degradation for pre-Phase-II /
+        pre-Phase-4.4c.4 / pre-Phase-X.1 v2 / pre-Phase-V.A.4 legacy records).
+
+    Raises:
+        ValueError: If ``required`` contains unknown component names, OR if
+            any required component is missing or invalid-format.
 
     Per hft-rules §0 (reuse-first): delegates to existing
     ``hft_contracts.canonical_hash.canonical_json_blob`` + ``sha256_hex``
     SSoT — NO new canonical-form site. Per hft-rules §1 (single source of
-    truth): the 4 component fingerprints already exist on the record
-    surface — this function just composes them.
+    truth): component names live on
+    :attr:`ProvenanceDiagnostic.COMPONENT_NAMES` — never duplicated.
     """
     from hft_contracts.canonical_hash import canonical_json_blob, sha256_hex
 
-    data_export_fp = record.provenance.data_dir_hash if record.provenance else None
-    feature_set_content_hash = (record.feature_set_ref or {}).get("content_hash")
-    compatibility_fp = record.compatibility_fingerprint
-    model_config_hash = (record.training_config or {}).get("model_config_hash")
+    # Eagerly reject unknown component names BEFORE running the diagnostic —
+    # input validation precedes work (mid-impl gate refinement 2026-05-09).
+    # Catches caller typo / stale required-set after future component addition.
+    # Per hft-rules §1 SSoT discipline (component names canonical home is
+    # ProvenanceDiagnostic.COMPONENT_NAMES).
+    if required is not None:
+        unknown = required - ProvenanceDiagnostic.COMPONENT_NAMES
+        if unknown:
+            raise ValueError(
+                f"Unknown component names in `required`: {sorted(unknown)}. "
+                f"Valid names: {sorted(ProvenanceDiagnostic.COMPONENT_NAMES)}."
+            )
 
-    components = {
-        "data_export_fp": data_export_fp,
-        "feature_set_content_hash": feature_set_content_hash,
-        "compatibility_fp": compatibility_fp,
-        "model_config_hash": model_config_hash,
-    }
+    diagnostic = diagnose_provenance_completeness(record)
 
-    # Graceful degradation: if ANY component is None / empty string,
-    # the experiment isn't fully provenance-tracked yet (legacy records
-    # OR in-progress runs missing post-stage fingerprints). Return None
-    # rather than computing a hash over partial data — the consumer
-    # (CLI filter, reproducibility audit) can distinguish "no provenance"
-    # from "different provenance" via this null sentinel.
-    if not all(components.values()):
+    if required is not None:
+        required_missing = diagnostic.missing & required
+        required_invalid = diagnostic.invalid_format & required
+        if required_missing or required_invalid:
+            raise ValueError(
+                f"Cannot compose experiment_provenance_hash for required set "
+                f"{sorted(required)}: "
+                f"missing={sorted(required_missing) or 'none'}, "
+                f"invalid_format={sorted(required_invalid) or 'none'}. "
+                f"Use diagnose_provenance_completeness() for the full diagnostic."
+            )
+
+    if not diagnostic.complete:
+        # Graceful degradation path: at least one of the 4 components is
+        # missing or invalid AND no `required` set was passed → silent None.
+        # The consumer (CLI filter, reproducibility audit) distinguishes "no
+        # provenance" from "different provenance" via this null sentinel.
         return None
 
+    components = _extract_provenance_components(record)
     return sha256_hex(canonical_json_blob(components))
 
 
@@ -756,4 +891,6 @@ __all__ = [
     "RecordType",
     "INDEX_SCHEMA_VERSION",
     "compute_experiment_provenance_hash",
+    "diagnose_provenance_completeness",
+    "ProvenanceDiagnostic",
 ]

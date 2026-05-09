@@ -17,7 +17,10 @@ import pytest
 from hft_contracts.experiment_record import (
     ExperimentRecord,
     INDEX_SCHEMA_VERSION,
+    ProvenanceDiagnostic,
     RecordType,
+    compute_experiment_provenance_hash,
+    diagnose_provenance_completeness,
 )
 from hft_contracts.provenance import GitInfo, Provenance
 
@@ -1108,3 +1111,322 @@ class TestHftOpsShimCompat:
         from hft_ops.ledger import ExperimentRecord as FromLedger
 
         assert FromLedger is ExperimentRecord
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Phase X.3 / REFINED-PLUS Sub-cycle 2 (2026-05-09 night)
+# ──────────────────────────────────────────────────────────────────────────
+# ProvenanceDiagnostic + diagnose_provenance_completeness +
+# compute_experiment_provenance_hash(required=...) tests. Closes the
+# Phase Y composer fail-loud opt-in pre-committed by Sub-cycle 1a's
+# OrchestratorContract (lobmodels.registry.protocols).
+#
+# Per saved feedback memory, tests must EXERCISE the contract — not
+# re-implement it. Each test asserts an observable behavior + cites the
+# rule it locks (§1 SSoT / §5 fail-fast / §8 never silently drop).
+# ──────────────────────────────────────────────────────────────────────────
+
+
+_VALID_HEX = "a" * 64  # canonical 64-lowercase-hex SHA-256 placeholder
+
+
+def _make_record_with_all_components(
+    *,
+    data_dir_hash: str = _VALID_HEX,
+    feature_set_content_hash: str = _VALID_HEX,
+    compatibility_fingerprint: str = _VALID_HEX,
+    model_config_hash: str = _VALID_HEX,
+) -> ExperimentRecord:
+    """Helper: construct an ExperimentRecord with all 4 provenance-hash
+    components populated (or selectively overridden)."""
+    return ExperimentRecord(
+        name="sub_cycle_2_fixture",
+        provenance=Provenance(
+            git=GitInfo(commit_hash="abc123", branch="main", dirty=False),
+            contract_version="3.0",
+            data_dir_hash=data_dir_hash,
+        ),
+        feature_set_ref={"name": "fixture_set_v1", "content_hash": feature_set_content_hash},
+        compatibility_fingerprint=compatibility_fingerprint,
+        training_config={"model_config_hash": model_config_hash},
+    )
+
+
+class TestProvenanceDiagnostic:
+    """ProvenanceDiagnostic frozen dataclass + COMPONENT_NAMES SSoT."""
+
+    def test_component_names_constant_has_exactly_4_entries(self):
+        # Per hft-rules §1: component names live on ProvenanceDiagnostic
+        # as the SSoT. Adding a 5th component requires extending this set
+        # AND _extract_provenance_components() AND
+        # compute_experiment_provenance_hash() — caught by this test.
+        assert ProvenanceDiagnostic.COMPONENT_NAMES == frozenset({
+            "data_export_fp",
+            "feature_set_content_hash",
+            "compatibility_fp",
+            "model_config_hash",
+        })
+
+    def test_dataclass_is_frozen(self):
+        # Immutability lock: ProvenanceDiagnostic instances cannot be
+        # mutated post-construction. Producers cannot accidentally re-tag
+        # `complete=True` after the diagnostic ran.
+        import dataclasses
+        diag = ProvenanceDiagnostic(
+            complete=True, missing=frozenset(), invalid_format=frozenset()
+        )
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            diag.complete = False  # frozen dataclass raises FrozenInstanceError
+
+    def test_fields_are_frozensets(self):
+        # missing + invalid_format MUST be FrozenSet (immutable + hashable)
+        # so callers can intersect/diff against ``required`` without
+        # mutating the diagnostic.
+        diag = ProvenanceDiagnostic(
+            complete=False,
+            missing=frozenset({"data_export_fp"}),
+            invalid_format=frozenset(),
+        )
+        assert isinstance(diag.missing, frozenset)
+        assert isinstance(diag.invalid_format, frozenset)
+
+
+class TestDiagnoseProvenanceCompleteness:
+    """diagnose_provenance_completeness() covers the 4 components +
+    empty-string-as-missing + invalid-format detection."""
+
+    def test_all_4_present_complete(self):
+        record = _make_record_with_all_components()
+        diag = diagnose_provenance_completeness(record)
+        assert diag.complete is True
+        assert diag.missing == frozenset()
+        assert diag.invalid_format == frozenset()
+
+    @pytest.mark.parametrize(
+        "kwarg_name,component_name",
+        [
+            ("data_dir_hash", "data_export_fp"),
+            ("feature_set_content_hash", "feature_set_content_hash"),
+            ("compatibility_fingerprint", "compatibility_fp"),
+            ("model_config_hash", "model_config_hash"),
+        ],
+    )
+    def test_each_component_missing_via_none(self, kwarg_name, component_name):
+        # When a component is None, it appears in `missing` and complete=False.
+        # Parametric sweep locks all 4 components.
+        record = _make_record_with_all_components(**{kwarg_name: None})
+        diag = diagnose_provenance_completeness(record)
+        assert diag.complete is False
+        assert component_name in diag.missing
+        # Other 3 components must NOT be reported missing (only the one set to None)
+        assert len(diag.missing) == 1, f"Expected only {component_name} missing; got {diag.missing}"
+
+    def test_empty_string_treated_as_missing(self):
+        # Per the composer's `if not all(components.values())` semantics,
+        # empty string is falsy and must be classified as missing — NOT
+        # invalid_format. This matches producer-side convention that an
+        # un-populated 64-hex string surfaces as None or "".
+        record = _make_record_with_all_components(compatibility_fingerprint="")
+        diag = diagnose_provenance_completeness(record)
+        assert diag.complete is False
+        assert "compatibility_fp" in diag.missing
+        assert "compatibility_fp" not in diag.invalid_format
+
+    def test_invalid_format_uppercase_hex(self):
+        # CONTENT_HASH_RE is lowercase-only (`^[a-f0-9]{64}$`).
+        # Uppercase 64-char hex must be classified as invalid_format,
+        # not missing.
+        record = _make_record_with_all_components(model_config_hash="A" * 64)
+        diag = diagnose_provenance_completeness(record)
+        assert diag.complete is False
+        assert "model_config_hash" in diag.invalid_format
+        assert "model_config_hash" not in diag.missing
+
+    def test_invalid_format_too_short(self):
+        # 32-char hex (MD5-length) doesn't match the 64-hex-SHA-256 contract.
+        # Must surface as invalid_format.
+        record = _make_record_with_all_components(data_dir_hash="abcd" * 8)  # 32 chars
+        diag = diagnose_provenance_completeness(record)
+        assert diag.complete is False
+        assert "data_export_fp" in diag.invalid_format
+
+    def test_record_with_provenance_none(self):
+        # ExperimentRecord without a Provenance attached: data_export_fp
+        # appears as missing (the access guard in
+        # _extract_provenance_components handles None provenance).
+        record = ExperimentRecord(
+            name="test",
+            feature_set_ref={"name": "x", "content_hash": _VALID_HEX},
+            compatibility_fingerprint=_VALID_HEX,
+            training_config={"model_config_hash": _VALID_HEX},
+            # provenance=None (default)
+        )
+        diag = diagnose_provenance_completeness(record)
+        assert diag.complete is False
+        assert "data_export_fp" in diag.missing
+
+
+class TestComputeExperimentProvenanceHashRequiredArg:
+    """compute_experiment_provenance_hash(record, *, required=...) — fail-loud
+    opt-in path per Sub-cycle 1a OrchestratorContract pre-commitment."""
+
+    def test_required_none_preserves_silent_none_back_compat(self):
+        # Default `required=None` → existing graceful-degradation behavior.
+        # A record with one missing component returns None, NOT raises.
+        # This is the back-compat guarantee for existing callers.
+        record = _make_record_with_all_components(model_config_hash=None)
+        result = compute_experiment_provenance_hash(record)  # implicit required=None
+        assert result is None
+
+    def test_required_empty_frozenset_equivalent_to_none(self):
+        # Edge case: required=frozenset() means "no components are required",
+        # so behaves identically to required=None. Hash returns when complete;
+        # None when graceful-degradation needed.
+        record_complete = _make_record_with_all_components()
+        record_partial = _make_record_with_all_components(compatibility_fingerprint=None)
+
+        # Complete record: returns 64-hex hash
+        h = compute_experiment_provenance_hash(record_complete, required=frozenset())
+        assert isinstance(h, str)
+        assert len(h) == 64
+
+        # Partial record: returns None (no required-set check fails)
+        assert compute_experiment_provenance_hash(record_partial, required=frozenset()) is None
+
+    def test_required_missing_component_raises_value_error(self):
+        # Per hft-rules §5 fail-fast: when caller declares a component is
+        # required and it's missing, raise rather than silently return None.
+        record = _make_record_with_all_components(compatibility_fingerprint=None)
+
+        with pytest.raises(ValueError) as exc_info:
+            compute_experiment_provenance_hash(record, required=frozenset({"compatibility_fp"}))
+
+        # Error message must list the offending component(s) + reference
+        # the diagnostic helper for caller debugging.
+        msg = str(exc_info.value)
+        assert "compatibility_fp" in msg
+        assert "missing" in msg
+        assert "diagnose_provenance_completeness" in msg
+
+    def test_required_invalid_format_component_raises_value_error(self):
+        # Invalid hex format (64-char uppercase) must raise when in required-set,
+        # NOT silently slip through (§5 + §8).
+        record = _make_record_with_all_components(model_config_hash="X" * 64)
+
+        with pytest.raises(ValueError) as exc_info:
+            compute_experiment_provenance_hash(record, required=frozenset({"model_config_hash"}))
+
+        msg = str(exc_info.value)
+        assert "model_config_hash" in msg
+        assert "invalid_format" in msg
+
+    def test_required_unknown_component_name_raises_value_error(self):
+        # Per hft-rules §1 SSoT: caller cannot pass arbitrary strings —
+        # they must come from ProvenanceDiagnostic.COMPONENT_NAMES.
+        # Catches typo-drift (e.g., "compat_fp" vs "compatibility_fp").
+        record = _make_record_with_all_components()
+
+        with pytest.raises(ValueError) as exc_info:
+            compute_experiment_provenance_hash(record, required=frozenset({"compat_fp"}))  # typo
+
+        msg = str(exc_info.value)
+        assert "Unknown component names" in msg
+        assert "compat_fp" in msg
+        assert "Valid names" in msg
+
+    def test_required_all_components_complete_record_returns_hash(self):
+        # Happy path: required=ALL + record complete → returns 64-hex hash.
+        # Locks the contract that Phase Y composer caller (Sub-cycle 4b
+        # cli.py refactor) will rely on.
+        record = _make_record_with_all_components()
+        h = compute_experiment_provenance_hash(
+            record,
+            required=ProvenanceDiagnostic.COMPONENT_NAMES,
+        )
+        assert isinstance(h, str)
+        assert len(h) == 64
+        # Lowercase hex
+        assert all(c in "0123456789abcdef" for c in h)
+
+    def test_hash_identical_with_or_without_required_when_complete(self):
+        # Behavioral consistency: when all 4 components are present and
+        # valid, the returned hash MUST be the same whether `required` is
+        # set or not. The `required` arg controls fail-loud-vs-silent
+        # behavior, NOT the hash content.
+        record = _make_record_with_all_components()
+
+        h_no_required = compute_experiment_provenance_hash(record)
+        h_with_required = compute_experiment_provenance_hash(
+            record,
+            required=ProvenanceDiagnostic.COMPONENT_NAMES,
+        )
+
+        assert h_no_required == h_with_required
+
+    def test_required_partial_set_only_validates_listed_components(self):
+        # When required={"data_export_fp"} but `compatibility_fp` is also
+        # missing, the function must NOT raise on `compatibility_fp` (it's
+        # not in the required-set). Hash returns None per graceful path.
+        record = _make_record_with_all_components(
+            compatibility_fingerprint=None,  # missing — but not in required
+        )
+
+        # data_export_fp IS present — required check passes
+        # compatibility_fp is missing — but not in required-set, so no raise
+        # diagnostic.complete is False → silent None return
+        result = compute_experiment_provenance_hash(record, required=frozenset({"data_export_fp"}))
+        assert result is None
+
+    def test_required_lists_multiple_missing_components_in_error(self):
+        # When multiple required components are missing, error message
+        # lists ALL of them — not just the first. Caller sees full picture
+        # to diagnose root cause without re-running.
+        record = _make_record_with_all_components(
+            data_dir_hash=None,
+            compatibility_fingerprint=None,
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            compute_experiment_provenance_hash(
+                record,
+                required=ProvenanceDiagnostic.COMPONENT_NAMES,
+            )
+
+        msg = str(exc_info.value)
+        assert "data_export_fp" in msg
+        assert "compatibility_fp" in msg
+
+
+class TestSubCycle2PackageSurface:
+    """Lock Sub-cycle 2 symbols as part of the public API surface."""
+
+    def test_new_symbols_in_module_all(self):
+        from hft_contracts import experiment_record
+
+        for name in (
+            "compute_experiment_provenance_hash",
+            "diagnose_provenance_completeness",
+            "ProvenanceDiagnostic",
+        ):
+            assert name in experiment_record.__all__, (
+                f"{name!r} must be in hft_contracts.experiment_record.__all__"
+            )
+
+    def test_new_symbols_reexported_at_package_level(self):
+        # Per hft-rules §0 reuse-first: the 3 Sub-cycle 2 symbols are
+        # re-exported at the hft_contracts package root for ergonomic
+        # consumer access (matches CompatibilityContract / FeatureImportance
+        # convention).
+        import hft_contracts
+
+        for name in (
+            "compute_experiment_provenance_hash",
+            "diagnose_provenance_completeness",
+            "ProvenanceDiagnostic",
+        ):
+            assert hasattr(hft_contracts, name), (
+                f"hft_contracts must re-export {name!r} at package level"
+            )
+            assert name in hft_contracts.__all__, (
+                f"{name!r} must appear in hft_contracts.__all__"
+            )

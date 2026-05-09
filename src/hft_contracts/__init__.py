@@ -21,7 +21,7 @@ Usage:
     from hft_contracts import parse_iso8601_utc, is_after_cutoff
 """
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
@@ -318,6 +318,15 @@ __all__ = [
     "ExperimentRecord",
     "RecordType",
     "INDEX_SCHEMA_VERSION",
+    # Phase X.3 / REFINED-PLUS Sub-cycle 2 (2026-05-09 night): Phase Y
+    # composer + structured diagnostic. ProvenanceDiagnostic.COMPONENT_NAMES
+    # is the SSoT for the 4 fingerprint sources (data_export_fp /
+    # feature_set_content_hash / compatibility_fp / model_config_hash).
+    # ``required`` kwarg on the composer enables fail-loud opt-in per
+    # OrchestratorContract pre-commitment from Sub-cycle 1a.
+    "compute_experiment_provenance_hash",
+    "diagnose_provenance_completeness",
+    "ProvenanceDiagnostic",
     "FeatureImportance",
     "FeatureImportanceArtifact",
     "FEATURE_IMPORTANCE_SCHEMA_VERSION",
@@ -399,6 +408,9 @@ from hft_contracts.experiment_record import (
     ExperimentRecord,
     RecordType,
     INDEX_SCHEMA_VERSION,
+    compute_experiment_provenance_hash,
+    diagnose_provenance_completeness,
+    ProvenanceDiagnostic,
 )
 from hft_contracts.feature_importance_artifact import (
     FeatureImportance,
