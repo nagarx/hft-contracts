@@ -226,19 +226,27 @@ class TestExperimentRecordArtifactsField:
         assert entry["artifact_kinds"] == ["feature_importance"]
 
 
-class TestIndexSchemaVersion1_5_0:
-    """Phase X.3 / Phase D Empirical Trust (2026-05-05): version bump lock.
-    Was 1.4.0 after Phase V.A.4 (compatibility_fingerprint projection);
-    bumped to 1.5.0 by Phase X.3 / Phase D which adds
-    ``ExperimentRecord.experiment_provenance_hash`` (composes 4 existing
-    fingerprints into Phase Y trust column) + its index_entry projection."""
+class TestIndexSchemaVersion1_6_0:
+    """Phase Y / γ-1 LITE close-out (#PY-94, 2026-05-10): version bump lock.
 
-    def test_index_schema_version_is_1_5_0(self):
+    Bump history:
+    - 1.4.0 (Phase V.A.4): compatibility_fingerprint projection
+    - 1.5.0 (Phase X.3 / Phase D, 2026-05-05): adds
+      ``ExperimentRecord.experiment_provenance_hash`` (composes 4 existing
+      fingerprints into Phase Y trust column) + its index_entry projection.
+    - 1.6.0 (Phase Y / γ-1 LITE, 2026-05-10): adds top-level
+      ``model_config_hash`` mirror to index_entry. Closes #PY-94 — the
+      composer reads from ``training_config["model_config_hash"]``,
+      that nested value IS populated at write time, but the top-level
+      projection was missing — γ-1 LITE empirical gate (12 records
+      had populated nested mch but 0 top-level projection)."""
+
+    def test_index_schema_version_is_1_6_0(self):
         from hft_contracts import INDEX_SCHEMA_VERSION
-        assert INDEX_SCHEMA_VERSION == "1.5.0", (
-            f"Expected INDEX_SCHEMA_VERSION='1.5.0' after Phase X.3/Phase D "
-            f"bump (added ``experiment_provenance_hash`` field + index_entry "
-            f"projection). Got {INDEX_SCHEMA_VERSION!r}."
+        assert INDEX_SCHEMA_VERSION == "1.6.0", (
+            f"Expected INDEX_SCHEMA_VERSION='1.6.0' after Phase Y/γ-1 LITE "
+            f"bump (added ``model_config_hash`` top-level mirror in "
+            f"index_entry projection). Got {INDEX_SCHEMA_VERSION!r}."
         )
 
     def test_feature_importance_schema_version_is_2(self):

@@ -65,7 +65,7 @@ from hft_contracts.signal_manifest import CONTENT_HASH_RE
 #
 # See root ``CLAUDE.md`` §Change-Coordination Checklist row
 # "Extend ExperimentRecord.index_entry() whitelist" for the full workflow.
-INDEX_SCHEMA_VERSION: str = "1.5.0"
+INDEX_SCHEMA_VERSION: str = "1.6.0"
 # 1.5.0 (Phase X.3 / Phase D — Empirical Trust 2026-05-05): MINOR additive bump
 # for ``experiment_provenance_hash`` projection — composes 4 existing fingerprints
 # (data_export_fp + feature_set_content_hash + compatibility_fp + model_config_hash)
@@ -636,6 +636,39 @@ class ExperimentRecord:
                 if (
                     isinstance(self.experiment_provenance_hash, str)
                     and bool(CONTENT_HASH_RE.match(self.experiment_provenance_hash))
+                )
+                else ""
+            ),
+            # Phase Y / γ-1 LITE close-out (#PY-94, 2026-05-10): surface
+            # ``model_config_hash`` as a top-level mirror in the index
+            # projection. The Phase Y composer reads from
+            # ``training_config["model_config_hash"]`` (per
+            # ``_extract_provenance_components`` at L749) — that nested
+            # value IS populated at trainer write time (sklearn at
+            # ``simple_trainer.py`` sidecar; PyTorch at
+            # ``_build_checkpoint_dict``). Without this projection,
+            # ``hft-ops ledger list --model-config-hash <hex>`` queries
+            # cannot filter. #PY-94 surfaced this gap during γ-1 LITE
+            # empirical gate: 12 records had populated nested mch
+            # (sklearn=``be40f8f0...``, TLOB=``de47c0ef...``) but
+            # 0 top-level projection because the field exists only
+            # nested in ``training_config``. Same regex gate +
+            # graceful-degradation pattern as
+            # ``compatibility_fingerprint`` (Phase V.A.4) and
+            # ``experiment_provenance_hash`` (Phase X.3) above.
+            "model_config_hash": (
+                (self.training_config or {}).get("model_config_hash", "")
+                if (
+                    isinstance(
+                        (self.training_config or {}).get("model_config_hash"),
+                        str,
+                    )
+                    and bool(
+                        CONTENT_HASH_RE.match(
+                            (self.training_config or {}).get("model_config_hash")
+                            or ""
+                        )
+                    )
                 )
                 else ""
             ),

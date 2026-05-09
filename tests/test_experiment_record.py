@@ -189,13 +189,21 @@ class TestIndexEntryCompleteness:
             created_at="2026-04-20T00:00:00+00:00",
         )
         projection = fixture.index_entry()
-        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.5.0":
+        # Frozen top-level key set for INDEX_SCHEMA_VERSION="1.6.0":
         # 1.0.0 → 1.1.0 (Phase 8A.0, 2026-04-20): +cache_info (additive).
         # 1.1.0 → 1.2.0 (Phase 8A.1, 2026-04-20): +sweep_failure_info (additive).
         # 1.2.0 → 1.3.0 (Phase 8C-α C.2, 2026-04-20): +artifact_kinds (additive).
         # 1.3.0 → 1.4.0 (Phase V.A.4, 2026-04-21): +compatibility_fingerprint (additive).
         # 1.4.0 → 1.5.0 (Phase X.3 / Phase D, 2026-05-05): +experiment_provenance_hash
         #   (additive) — composes 4 fingerprints for cross-experiment reproducibility.
+        # 1.5.0 → 1.6.0 (Phase Y / γ-1 LITE close-out #PY-94, 2026-05-10):
+        #   +model_config_hash (additive) — top-level mirror of the nested
+        #   ``training_config["model_config_hash"]`` source the Phase Y
+        #   composer reads from. Closes the γ-1 LITE empirical-gate gap
+        #   where 12 records had populated nested mch but 0 top-level
+        #   projection (because the field exists only nested in
+        #   training_config). Same regex gate + graceful-degradation
+        #   pattern as compatibility_fingerprint + experiment_provenance_hash.
         expected_top_level = {
             "experiment_id",
             "name",
@@ -223,6 +231,7 @@ class TestIndexEntryCompleteness:
             "artifact_kinds",          # Phase 8C-α C.2 — post-training artifact kinds
             "compatibility_fingerprint",  # Phase V.A.4 — Signal-boundary compatibility trust column
             "experiment_provenance_hash",  # Phase X.3 / Phase D — Phase Y composition (4-fp identity)
+            "model_config_hash",       # Phase Y / γ-1 LITE #PY-94 — top-level mirror of nested mch
         }
         actual_top_level = set(projection.keys())
 
@@ -230,8 +239,8 @@ class TestIndexEntryCompleteness:
         removed = expected_top_level - actual_top_level
 
         assert not added and not removed, (
-            f"Phase 8B/8A.0/8A.1/8C-α/V.A.4/X.3-D: index_entry() key-set drifted from "
-            f"INDEX_SCHEMA_VERSION=1.5.0 golden. Added: {sorted(added)}; "
+            f"Phase 8B/8A.0/8A.1/8C-α/V.A.4/X.3-D/γ-1-LITE: index_entry() key-set drifted "
+            f"from INDEX_SCHEMA_VERSION=1.6.0 golden. Added: {sorted(added)}; "
             f"Removed: {sorted(removed)}. If this change is intentional, "
             f"(a) bump INDEX_SCHEMA_VERSION MINOR (or MAJOR for removals), "
             f"(b) update this test's expected_top_level set, "
@@ -426,16 +435,20 @@ class TestIndexEntry:
                 f"string; got {entry['compatibility_fingerprint']!r}"
             )
 
-    def test_index_schema_version_bumped_to_1_5_0(self):
-        """Phase X.3 / Phase D Empirical Trust (2026-05-05) adds
-        ``experiment_provenance_hash`` to the index projection — bumps
-        INDEX_SCHEMA_VERSION MINOR 1.4.0 → 1.5.0 per SemVer additive policy
-        (root CLAUDE.md §Change-Coordination Checklist). hft-ops ledger
-        envelope auto-rebuild triggers on MAJOR.MINOR mismatch."""
+    def test_index_schema_version_bumped_to_1_6_0(self):
+        """Phase Y / γ-1 LITE close-out (#PY-94, 2026-05-10) adds
+        ``model_config_hash`` top-level mirror to the index projection —
+        bumps INDEX_SCHEMA_VERSION MINOR 1.5.0 → 1.6.0 per SemVer additive
+        policy (root CLAUDE.md §Change-Coordination Checklist). hft-ops
+        ledger envelope auto-rebuild triggers on MAJOR.MINOR mismatch.
+
+        Bump history:
+        - 1.4.0 → 1.5.0 (Phase X.3/Phase D, 2026-05-05): +experiment_provenance_hash
+        - 1.5.0 → 1.6.0 (Phase Y/γ-1 LITE, 2026-05-10): +model_config_hash"""
         from hft_contracts.experiment_record import INDEX_SCHEMA_VERSION
 
-        assert INDEX_SCHEMA_VERSION == "1.5.0", (
-            f"Expected INDEX_SCHEMA_VERSION='1.5.0' (Phase X.3/Phase D bump); "
+        assert INDEX_SCHEMA_VERSION == "1.6.0", (
+            f"Expected INDEX_SCHEMA_VERSION='1.6.0' (Phase Y/γ-1 LITE bump); "
             f"got {INDEX_SCHEMA_VERSION!r}. If intentional, update this "
             f"test + root CLAUDE.md Last-verified stamp + "
             f"pipeline_contract.toml changelog entry."
@@ -677,6 +690,76 @@ class TestGateReportsIndexEntry:
         )
         entry = r.index_entry()
         assert entry["gate_reports"]["post_training_gate"]["status"] == ""
+
+
+class TestModelConfigHashIndexEntryProjection:
+    """Phase Y / γ-1 LITE close-out (#PY-94, 2026-05-10).
+
+    The Phase Y composer reads ``model_config_hash`` from
+    ``training_config["model_config_hash"]`` (per ``_extract_provenance_components``
+    at experiment_record.py:749). That nested value IS populated at trainer
+    write time (sklearn at simple_trainer.py sidecar; PyTorch at
+    ``_build_checkpoint_dict``). Without this projection, ``hft-ops ledger
+    list --model-config-hash <hex>`` queries cannot filter — #PY-94 surfaced
+    this gap during γ-1 LITE empirical gate (12 records had populated nested
+    mch but 0 top-level projection).
+
+    These tests lock the top-level mirror behavior: project nested
+    ``training_config["model_config_hash"]`` to top-level
+    ``index_entry()["model_config_hash"]`` with the same regex gate +
+    graceful-degradation pattern as ``compatibility_fingerprint``
+    (Phase V.A.4) and ``experiment_provenance_hash`` (Phase X.3).
+    """
+
+    def test_index_entry_projects_populated_model_config_hash(self):
+        # Given a record with training_config["model_config_hash"] populated
+        # (matches the actual γ-1 LITE TLOB arm value)
+        valid_mch = "de47c0ef49abc0ef5d9d69efe1d4003a8b9551f24d5e6574b77f52fc041ecbb4"
+        r = ExperimentRecord(
+            training_config={"model_config_hash": valid_mch, "model_type": "tlob"},
+        )
+        # When index_entry() is called
+        entry = r.index_entry()
+        # Then top-level model_config_hash equals the nested value
+        assert entry["model_config_hash"] == valid_mch, (
+            "Top-level model_config_hash projection must mirror "
+            "training_config['model_config_hash'] when populated and "
+            "valid 64-hex SHA-256."
+        )
+
+    def test_index_entry_empty_string_when_unpopulated(self):
+        # Pre-Phase-Y record OR empty training_config — graceful degradation
+        # to "" (not None) for shape-stable index queries.
+        r1 = ExperimentRecord(training_config={})
+        r2 = ExperimentRecord()  # No training_config at all
+        r3 = ExperimentRecord(training_config={"model_type": "tlob"})  # mch missing
+        for r in (r1, r2, r3):
+            entry = r.index_entry()
+            assert entry["model_config_hash"] == "", (
+                "Unpopulated model_config_hash must project as empty "
+                "string '' (not None, not missing key) for shape-stable "
+                f"index queries. Got: {entry['model_config_hash']!r}"
+            )
+
+    def test_index_entry_empty_string_when_invalid_format(self):
+        # Malformed (not 64-hex) value → graceful degradation to ""
+        # — same poisoned-record pattern as compatibility_fingerprint.
+        for bad_value in (
+            "too_short",                                          # length < 64
+            "x" * 64,                                              # wrong charset (x not hex)
+            "DE47C0EF49ABC0EF5D9D69EFE1D4003A8B9551F24D5E6574B77F52FC041ECBB4",  # uppercase (regex demands lowercase)
+            "de47c0ef49abc0ef5d9d69efe1d4003a8b9551f24d5e6574b77f52fc041ecbb",   # length 63
+            "de47c0ef49abc0ef5d9d69efe1d4003a8b9551f24d5e6574b77f52fc041ecbb44", # length 65
+            123,                                                   # wrong type (int)
+            None,                                                  # None
+        ):
+            r = ExperimentRecord(training_config={"model_config_hash": bad_value})
+            entry = r.index_entry()
+            assert entry["model_config_hash"] == "", (
+                f"Invalid model_config_hash {bad_value!r} must project "
+                f"as empty string '' (graceful degradation per "
+                f"CONTENT_HASH_RE gate). Got: {entry['model_config_hash']!r}"
+            )
 
 
 class TestLegacyNestedGateMigration:

@@ -11,6 +11,46 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+### Added (Phase Y / γ-1 LITE close-out — #PY-94 model_config_hash top-level mirror)
+
+- **`ExperimentRecord.index_entry()` projects `model_config_hash` at top level.**
+  The Phase Y composer reads `model_config_hash` from
+  `training_config["model_config_hash"]` (per `_extract_provenance_components`
+  at experiment_record.py:749). That nested value IS populated at trainer
+  write time (sklearn at simple_trainer.py sidecar; PyTorch at
+  `_build_checkpoint_dict`). Without this projection, `hft-ops ledger list
+  --model-config-hash <hex>` queries cannot filter — #PY-94 surfaced this
+  gap during γ-1 LITE empirical gate 2026-05-09 night (12 records had
+  populated nested mch but 0 top-level projection because the field
+  exists only nested in `training_config`). Same regex gate +
+  graceful-degradation pattern as `compatibility_fingerprint` (Phase
+  V.A.4) and `experiment_provenance_hash` (Phase X.3).
+
+### Changed
+
+- **`INDEX_SCHEMA_VERSION`: `"1.5.0"` → `"1.6.0"` (MINOR additive).**
+  Drives the auto-invalidation substrate at `hft-ops/ledger/ledger.py`
+  via the `_load_index` envelope writer — existing `index.json`
+  on-disk envelopes will auto-rebuild from `records/*.json` on next
+  load to pick up the new top-level projection. Operators can also
+  run `hft-ops ledger rebuild-index` explicitly.
+
+### Tests
+
+- **`tests/test_experiment_record.py::TestModelConfigHashIndexEntryProjection`**
+  — 3 NEW tests locking the projection contract:
+  (a) populated nested mch surfaces at top level (uses actual γ-1 LITE
+  TLOB arm value `de47c0ef...`);
+  (b) unpopulated/missing → `""` graceful degradation across 3 record
+  shapes (empty training_config, no training_config, training_config
+  without `model_config_hash` key);
+  (c) malformed (not lowercase 64-hex) → `""` across 7 invalid value
+  shapes (too short / wrong charset / uppercase / length 63 / length 65
+  / int / None).
+- **`TestIndexEntryCompleteness::test_index_entry_top_level_key_set_frozen`**
+  — extended `expected_top_level` set with `model_config_hash`; updated
+  version comment to track 1.5.0 → 1.6.0 bump.
+
 ## [2.6.0] — 2026-05-09
 
 ### Added (Phase X.3 / REFINED-PLUS Sub-cycle 2 — Phase Y composer fail-loud opt-in + structured provenance diagnostic)
