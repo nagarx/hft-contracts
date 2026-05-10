@@ -11,7 +11,143 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
-### Added (Phase Y / γ-1 LITE close-out — #PY-94 model_config_hash top-level mirror)
+## [2.7.0] — 2026-05-11
+
+### Added (#PY-73 closure — atomic binary write SSoT)
+
+- **`hft_contracts.atomic_io.atomic_write_binary(path, write_fn, *, min_bytes=1)`** —
+  generic atomic binary-write primitive. Mirrors `atomic_write_json`
+  Protocol (tmp + fsync + `os.replace` + BaseException-safe cleanup)
+  but for binary file handles. Caller supplies `write_fn` callable
+  that receives an opened-for-write binary handle. Empty-write guard
+  (`tmp_path.stat().st_size < min_bytes` → `AtomicWriteError`) per
+  hft-rules §8. **Closes #PY-73** — the SSoT primitive underlying 3
+  typed wrappers + `atomic_copy`.
+
+- **`atomic_write_torch(path, obj, *, _use_new_zipfile_serialization=True)`** —
+  atomic `torch.save` wrapper. **Lazy-imports `torch` inside function
+  body** to preserve hft-contracts' torch-free invariant at module
+  load. Locked by `tests/test_atomic_io_imports.py::test_atomic_io_no_top_level_torch_import`
+  AST regression test (mirrors the Cycle C1 `test_contract_preflight_module_imports_are_torch_free`
+  precedent). Migrates 2 producer sites in lob-model-trainer
+  (`trainer.py:1388` Trainer.save_checkpoint + `callbacks.py:684`
+  ModelCheckpoint._save_checkpoint).
+
+- **`atomic_write_npy(path, arr, *, allow_pickle=False)`** — atomic
+  `np.save` wrapper. **Rejects non-ndarray inputs explicitly** via
+  `TypeError` (no silent `np.asarray` conversion, per hft-rules §8).
+  Migrates 14 producer sites: 4 in lob-model-trainer
+  `simple_trainer.py:765-768`, 9 in `lobtrainer/export/exporter.py:502-534`,
+  1 in lob-backtester `registry.py:124`. `numpy` was already a hft-contracts
+  runtime dep (via `label_factory` + `signal_manifest`) — top-level
+  import is safe.
+
+- **`atomic_write_pickle(path, obj, *, protocol=pickle.DEFAULT_PROTOCOL)`** —
+  atomic `pickle.dump` wrapper. **Default protocol is
+  `pickle.DEFAULT_PROTOCOL` (stable across point releases), NOT
+  `pickle.HIGHEST_PROTOCOL`** (the newest supported, which may rotate
+  forward and break older readers). Caller may pass
+  `HIGHEST_PROTOCOL` explicitly when reader Python version is
+  controlled. **Both candidate consumer sites DEFERRED**:
+  `lob-models/.../base_simple.py:80` (leaf-package architecture —
+  lob-models cannot depend on hft-contracts per `pyproject.toml:39-40`)
+  and `MBO-LOB-analyzer/.../orchestrator.py:224` (foreign-agent state
+  per root CLAUDE.md banner). Tracked as sister #PY-73 follow-ups.
+
+- **`atomic_copy(src, dst, *, min_bytes=1)`** — atomic file copy via
+  tmp + `os.replace`. Reads `src` bytes into a tmp file alongside
+  `dst`, then atomic-renames. Mirrors `shutil.copy` semantics but
+  eliminates the partial-write window. Does NOT preserve file
+  metadata (use existing `hft-ops/ledger/ledger.py:611` `shutil.copy2
+  → tmp → os.replace` pattern if metadata needed; that path is
+  Phase 8C-α-aligned and remains divergent on purpose). Migrates 1
+  producer site in lob-model-trainer `callbacks.py:694`
+  (ModelCheckpoint copies `<epoch>.pt` to `best.pt` — a LARGE
+  100MB-1GB file in the hot per-epoch loop, where SIGKILL-mid-copy
+  is the dominant corruption risk).
+
+### Changed
+
+- **Tmp-path generation hardened** with `secrets.token_hex(4)`
+  suffix component. Previous 2-tuple suffix
+  `<name>.tmp.<pid>.<time_ns>` is now `<name>.tmp.<pid>.<time_ns>.<rand4>`.
+  Closes PID-recycle + coarse `time_ns()` granularity (~1µs on
+  macOS) collision hazard surfaced by Adv-API-review. Internal
+  helper `_make_tmp_path(path)` consolidates the pattern across all
+  6 atomic primitives. Existing `atomic_write_json` callers see no
+  observable change (tmp filenames are internal).
+
+- **Module docstring** — extended to document the #PY-73 cycle
+  rationale, the lazy-import discipline preserving hft-ops torch-free
+  invariant, the empty-write guard policy, and the NFS / SMB / FUSE
+  atomicity caveat.
+
+### Tests
+
+- **NEW `tests/test_atomic_io.py`** — 31 tests covering all 5 new
+  primitives + extended `atomic_write_json` coverage:
+  - **Round-trip equality** for torch/npy/pickle/copy (byte-identical
+    vs direct serializer)
+  - **Empty-write guard** fires on no-op `write_fn` (raises
+    `AtomicWriteError`)
+  - **`atomic_write_npy` TypeError** on non-ndarray (list/tuple/scalar)
+  - **`atomic_write_pickle` protocol default** is `DEFAULT_PROTOCOL`
+    not `HIGHEST_PROTOCOL` (forward-compat invariant)
+  - **Tmp cleanup** when `write_fn` raises mid-write
+  - **`atomic_copy` round-trip** preserves file contents
+  - **`AtomicWriteError` IS-A `OSError`** (preserves except-OSError
+    compat)
+  - **Tmp-path uniqueness** under repeated rapid invocation (collision
+    sanity)
+
+- **NEW `tests/test_atomic_io_imports.py`** — AST regression test
+  locking the lazy-torch-import discipline. Parses `atomic_io.py`
+  module-level imports + asserts `torch` not in any top-level
+  `Import`/`ImportFrom` node. Also runs a subprocess sanity check
+  (`python -c "import hft_contracts.atomic_io; assert 'torch' not in
+  sys.modules"`) to lock the runtime invariant alongside the AST
+  invariant.
+
+### Migration notes for consumers (this cycle: 17 of 18 sites migrated)
+
+After hft-contracts v2.7.0 ships, consumer repos should bump
+`hft-contracts>=2.7.0` in `pyproject.toml` and migrate non-atomic
+write sites:
+
+- **lob-model-trainer SHIPPED** (16 sites): 2 `torch.save` →
+  `atomic_write_torch` (`trainer.py:1388` Trainer.save_checkpoint +
+  `callbacks.py:684` ModelCheckpoint); 13 `np.save` → `atomic_write_npy`
+  (`simple_trainer.py:765-768` 4 sklearn signals +
+  `lobtrainer/export/exporter.py:502-534` 9 pytorch signals); 1
+  `shutil.copy` → `atomic_copy` (`callbacks.py:694` best.pt
+  duplication). Pin bump: `>=2.5.0` → `>=2.7.0`.
+
+- **lob-backtester SHIPPED** (1 site): `registry.py:124` `np.save` →
+  `atomic_write_npy`. Pin bump: unpinned → `>=2.7.0`.
+
+- **lob-models DEFERRED** (1 site `base_simple.py:80`): leaf-package
+  architecture per `pyproject.toml:39-41` — lob-models cannot depend
+  on hft-contracts. Migrating this site requires either (a) lifting
+  an inline-pickle atomic helper into lob-models, or (b) relaxing
+  the leaf-package invariant. The site is bounded-impact (sklearn
+  models are LOAD-once / SAVE-rarely; no per-epoch hot-loop SIGKILL
+  hazard). Tracked as sister #PY-73 follow-up. Docstring at
+  `base_simple.py:75-87` documents the deferral rationale in-place.
+
+- **hft-ops**: no migrations needed (`ledger.py:611` already uses
+  the tmp+os.replace pattern via `shutil.copy2` — preserves
+  metadata, divergent-on-purpose vs the metadata-free `atomic_copy`
+  per Phase 8C-α design). Pin bump optional (no new symbols
+  consumed by hft-ops this cycle).
+
+- **MBO-LOB-analyzer DEFERRED** (1 site `orchestrator.py:224`):
+  separate coordination cycle — repo is in foreign-agent dirty
+  state per root CLAUDE.md banner (8+ weeks old, no DESIGN-1
+  cycle work). Tracked as sister #PY-73 follow-up.
+
+## [2.6.0] — 2026-05-09
+
+### Added (Phase X.3 / REFINED-PLUS Sub-cycle 2 — Phase Y composer fail-loud opt-in + structured provenance diagnostic)
 
 - **`ExperimentRecord.index_entry()` projects `model_config_hash` at top level.**
   The Phase Y composer reads `model_config_hash` from

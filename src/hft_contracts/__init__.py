@@ -21,7 +21,7 @@ Usage:
     from hft_contracts import parse_iso8601_utc, is_after_cutoff
 """
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
@@ -356,7 +356,16 @@ __all__ = [
     "is_after_cutoff",
     # REV 2 pre-push (2026-04-20): atomic-I/O public API (renamed from
     # hft_contracts._atomic_io; underscore shim retained through 2026-10-31).
+    # #PY-73 closure (2026-05-11, v2.7.0): binary primitive + 3 typed
+    # wrappers + copy helper. Lazy-imports torch in atomic_write_torch
+    # to preserve hft-ops torch-free invariant (locked by
+    # tests/test_atomic_io_imports.py AST regression).
     "atomic_write_json",
+    "atomic_write_binary",
+    "atomic_write_torch",
+    "atomic_write_npy",
+    "atomic_write_pickle",
+    "atomic_copy",
     "AtomicWriteError",
     # Phase II (2026-04-20): cross-module compatibility contract + fingerprint.
     # See hft_contracts.compatibility for the 11-key shape-determining surface
@@ -444,7 +453,15 @@ from hft_contracts.feature_sets import (
 # ``hft_contracts.atomic_io``. ``_atomic_io`` remains as a deprecation
 # shim (removal 2026-10-31). Imported here so ``from hft_contracts import
 # atomic_write_json, AtomicWriteError`` is the canonical public access.
-from hft_contracts.atomic_io import atomic_write_json, AtomicWriteError
+from hft_contracts.atomic_io import (
+    atomic_write_json,
+    atomic_write_binary,
+    atomic_write_torch,
+    atomic_write_npy,
+    atomic_write_pickle,
+    atomic_copy,
+    AtomicWriteError,
+)
 # Phase 7 Stage 7.4 Round 5 (2026-04-20): gate-report dict contract +
 # status-value constant. Documents the convention for
 # ``StageResult.captured_metrics["gate_report"]`` dicts consumed by
