@@ -147,7 +147,7 @@ write sites:
 
 ## [2.6.0] — 2026-05-09
 
-### Added (Phase X.3 / REFINED-PLUS Sub-cycle 2 — Phase Y composer fail-loud opt-in + structured provenance diagnostic)
+### Added (Phase X.3 / REFINED-PLUS Sub-cycle 3 — Phase Y `model_config_hash` top-level projection in `index_entry()`)
 
 - **`ExperimentRecord.index_entry()` projects `model_config_hash` at top level.**
   The Phase Y composer reads `model_config_hash` from
@@ -186,8 +186,6 @@ write sites:
 - **`TestIndexEntryCompleteness::test_index_entry_top_level_key_set_frozen`**
   — extended `expected_top_level` set with `model_config_hash`; updated
   version comment to track 1.5.0 → 1.6.0 bump.
-
-## [2.6.0] — 2026-05-09
 
 ### Added (Phase X.3 / REFINED-PLUS Sub-cycle 2 — Phase Y composer fail-loud opt-in + structured provenance diagnostic)
 
