@@ -247,9 +247,34 @@ def validate_label_encoding(
         return
 
     # Classification: validate class names match contract
+    #
+    # Phase X.2.A.2 / #PY-218 (2026-05-14): nested-form fallback mirrors the
+    # regression branch at L237-240. When the top-level `label_encoding.values`
+    # is not a dict (e.g., the Rust producer at
+    # `feature-extractor-MBO-LOB/crates/hft-export-pipeline/src/types.rs:117-131`
+    # emits a LIST `[0, 1, 2]` for all 3 classification `LabelEncoding`
+    # variants), fall back to the nested `labeling.label_encoding.values`
+    # which strategy-specific producers (e.g.,
+    # `feature-extractor-MBO-LOB/crates/hft-export-pipeline/src/strategies/triple_barrier.rs:156-164`)
+    # correctly emit as a dict. This adds backward-compat AND defends future
+    # producer drift. Producer-side cleanup tracked as #PY-218.
     encoding = metadata.get("label_encoding", {})
+    values_map = None
     if isinstance(encoding, dict) and "values" in encoding:
-        values_map = encoding["values"]
+        candidate = encoding["values"]
+        if isinstance(candidate, dict):
+            values_map = candidate
+
+    if values_map is None:
+        labeling = metadata.get("labeling", {})
+        if isinstance(labeling, dict):
+            nested_enc = labeling.get("label_encoding", {})
+            if isinstance(nested_enc, dict) and "values" in nested_enc:
+                candidate = nested_enc["values"]
+                if isinstance(candidate, dict):
+                    values_map = candidate
+
+    if values_map is not None:
         contract_names = {str(k): v for k, v in contract.class_names.items()}
         if values_map != contract_names:
             raise ContractError(

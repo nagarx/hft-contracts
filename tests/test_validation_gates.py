@@ -282,6 +282,94 @@ class TestValidateLabelEncoding:
         warnings = validate_export_contract(meta)
         assert isinstance(warnings, list)
 
+    # ------------------------------------------------------------------------
+    # Phase X.2.A.2 / #PY-218 (2026-05-14): nested-form fallback regression tests
+    # Background: Rust producer at
+    # `feature-extractor-MBO-LOB/crates/hft-export-pipeline/src/types.rs:117-131`
+    # emits classification `label_encoding.values` as a LIST [0,1,2] (top-level),
+    # while strategy-specific producers (e.g., `triple_barrier.rs:156-164`)
+    # correctly emit it as a DICT in the nested `labeling.label_encoding.values`.
+    # The validator now mirrors the regression-branch fallback at L237-240.
+    # ------------------------------------------------------------------------
+
+    def test_classification_nested_fallback_when_top_level_is_list(self):
+        """Real v3p0 TB corpus shape: top-level list + nested dict → validates via nested."""
+        meta = _make_triple_barrier_metadata()
+        meta["label_encoding"] = {
+            "format": "class_index_int8",
+            "values": [0, 1, 2],  # Rust producer types.rs:128 LIST format
+            "note": "...",
+            "dtype": "int8",
+        }
+        meta["labeling"] = {
+            "strategy": "triple_barrier",
+            "horizons": [30],
+            "label_encoding": {
+                "format": "class_index_int8",
+                "values": {"0": "StopLoss", "1": "Timeout", "2": "ProfitTarget"},
+                "note": "...",
+            },
+        }
+        # Validation succeeds via nested-form fallback (no raise)
+        validate_label_encoding(meta)
+
+    def test_classification_nested_fallback_mismatch_raises(self):
+        """Nested-form fallback still validates against contract — wrong names raise."""
+        meta = _make_triple_barrier_metadata()
+        meta["label_encoding"] = {
+            "format": "class_index_int8",
+            "values": [0, 1, 2],  # top-level list triggers nested fallback
+        }
+        meta["labeling"] = {
+            "strategy": "triple_barrier",
+            "label_encoding": {
+                "values": {"0": "WrongName0", "1": "WrongName1", "2": "WrongName2"},
+            },
+        }
+        with pytest.raises(ContractError, match="Label encoding mismatch"):
+            validate_label_encoding(meta)
+
+    def test_classification_top_level_dict_takes_precedence_over_nested(self):
+        """When BOTH forms are dicts, top-level wins (preserves prior behavior)."""
+        meta = _make_triple_barrier_metadata()
+        # Top-level: correct dict (preserves prior path)
+        # Nested: WRONG dict (would raise if it were consulted)
+        meta["labeling"]["label_encoding"] = {
+            "values": {"0": "WrongName0", "1": "WrongName1", "2": "WrongName2"},
+        }
+        # Top-level dict is correct; nested wrong dict is NOT consulted
+        validate_label_encoding(meta)
+
+    def test_classification_v3p0_tb_real_world_shape_validates(self):
+        """Exact replica of v3p0 TB corpus 20250203_metadata.json structure."""
+        meta = _make_triple_barrier_metadata()
+        # Match the actual v3p0 TB corpus shape (verified via np.load + JSON read)
+        meta["label_encoding"] = {
+            "dtype": "int8",
+            "note": (
+                "Triple Barrier class indices: 0=StopLoss, 1=Timeout, "
+                "2=ProfitTarget. Ready for CrossEntropyLoss (no shift needed)."
+            ),
+            "values": [0, 1, 2],
+        }
+        meta["labeling"] = {
+            "strategy": "triple_barrier",
+            "horizons": [30],
+            "profit_target_bps": 40.0,
+            "stop_loss_bps": 20.0,
+            "label_encoding": {
+                "format": "class_index_int8",
+                "values": {
+                    "0": "StopLoss",
+                    "1": "Timeout",
+                    "2": "ProfitTarget",
+                },
+                "note": "Ready for PyTorch CrossEntropyLoss (class indices 0, 1, 2)",
+            },
+        }
+        # Real v3p0 TB metadata passes validation post-fix
+        validate_label_encoding(meta)
+
 
 class TestValidateProvenance:
     def test_complete_provenance_no_warnings(self):

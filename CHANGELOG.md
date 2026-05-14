@@ -11,6 +11,44 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+## [2.7.1] — 2026-05-14
+
+### Fixed (Phase X.2.A.2 / #PY-218 — TB classification label_encoding format drift)
+
+- **`validate_label_encoding` classification branch nested-form fallback** —
+  Mirrors the regression-branch pattern at `validation.py:237-240`. When the
+  top-level `metadata["label_encoding"]["values"]` is not a dict (e.g., the
+  Rust producer at `feature-extractor-MBO-LOB/crates/hft-export-pipeline/src/types.rs:117-131`
+  emits a LIST `[0, 1, 2]` for all 3 classification `LabelEncoding` variants),
+  the validator now falls back to the nested `metadata["labeling"]["label_encoding"]["values"]`
+  which strategy-specific producers (e.g.,
+  `feature-extractor-MBO-LOB/crates/hft-export-pipeline/src/strategies/triple_barrier.rs:156-164`)
+  correctly emit as a dict.
+
+  **Unblocks**: R-17a TB v3p0 corpus training (smoke-time discovery
+  2026-05-14). Pre-fix the trainer hit `ContractError: Label encoding
+  mismatch ... Metadata: [0, 1, 2], Contract: {'0': 'StopLoss', ...}`.
+  Post-fix the validator finds the correct dict in the nested form +
+  validates against contract.
+
+  **Backward-compat**: existing TLOB/Opportunity/TB corpora with the
+  legacy top-level list format are now ACCEPTED (via nested fallback).
+  Corpora with `label_encoding.values` missing entirely still skip
+  validation (preserves prior behavior for legacy corpora without
+  the metadata block).
+
+  **Producer-side cleanup tracked as #PY-218** — fix the Rust producer
+  in `types.rs` to emit dict format (matching the nested form). Separate
+  hardening cycle; not blocking the validator fix.
+
+  **+4 regression tests** at `tests/test_validation_gates.py::TestValidateLabelEncoding`:
+  - `test_classification_nested_fallback_when_top_level_is_list`
+  - `test_classification_nested_fallback_mismatch_raises`
+  - `test_classification_top_level_dict_takes_precedence_over_nested`
+  - `test_classification_v3p0_tb_real_world_shape_validates`
+
+  Test count: 46 → **50** validator-gate tests.
+
 ## [2.7.0] — 2026-05-11
 
 ### Added (#PY-73 closure — atomic binary write SSoT)
