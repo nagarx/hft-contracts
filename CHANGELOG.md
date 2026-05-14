@@ -11,6 +11,97 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+## [2.8.0] — 2026-05-14
+
+### Added (Phase 8D / #PY-223 — `experiment_recorder` SSoT helper)
+
+- **`hft_contracts.experiment_recorder` NEW MODULE** — SSoT helper composing
+  `ExperimentRecord` from on-disk training artifacts. Consumed by BOTH:
+
+  1. **hft-ops orchestrator path**: `cli.py::_record_experiment` delegates
+     to `record_from_artifacts(...)` — Phase 2 of cycle refactors the 263-LOC
+     function body into ~50 LOC of harvest + delegate.
+
+  2. **lob-model-trainer direct path**: `scripts/train.py
+     --register-to-ledger <path>` opt-in flag — Phase 3 of cycle. Closes
+     the R-17a-class direct-trainer ~26% invisibility class (~12-15 R-cycle
+     runs that bypass `hft-ops run` and write only signal_metadata.json
+     without an ExperimentRecord).
+
+- **Public API** (4 symbols re-exported at package level):
+  - `HarvestedTrustColumns` — frozen-ish dataclass holding the 4 Phase Y
+    trust columns + harvest_errors list.
+  - `harvest_trust_columns(captured_metrics)` — validate-and-harvest from
+    an in-memory dict (orchestrator path: `StageResult.captured_metrics`).
+  - `harvest_trust_columns_from_signal_metadata(path)` — file-based
+    convenience (direct-trainer path: read `signal_metadata.json`).
+  - `record_from_artifacts(...)` — compose `ExperimentRecord` with full
+    Phase Y composer support + optional atomic ledger write via
+    `atomic_write_json` SSoT.
+
+- **Architectural fit** (per hft-rules §0 reuse-first):
+  - Lives in hft-contracts (leaf SSoT) — both hft-ops AND lob-model-trainer
+    already depend on hft-contracts. **No new repo dependency edges; no
+    circular deps.**
+  - Reuses existing SSoTs: `ExperimentRecord` + `build_provenance` +
+    `compute_experiment_provenance_hash` + `atomic_write_json` +
+    `CONTENT_HASH_RE` — every primitive already shipped.
+  - **Trust-column harvester logic migrates from cli-local
+    (`hft-ops/cli.py:104-208` Cluster Z Closure C, 2026-05-11) to this
+    module** — same semantics, now reusable from train.py.
+
+### Fixed (closes via SSoT extraction)
+
+- **#PY-223 (R-17a-class direct-trainer ~26% invisibility)** — pre-cycle,
+  `python scripts/train.py` writes signal_metadata.json + checkpoint but
+  no ExperimentRecord, so direct-trainer records were invisible to
+  `hft-ops ledger list --provenance-hash` / `--compatibility-fp` queries.
+  Phase 2/3 of this cycle wire the SSoT into both paths. Phase Y composer
+  ~78.3% rate among orchestrated runs (per CLAUDE.md banner); Phase 2 + 3
+  close the ~26.7% R-17a-class gap. Empirical post-deployment rate depends
+  on direct-trainer adoption + signal-export completeness.
+
+### Architectural classification
+
+- **Class A SSoT** per root CLAUDE.md §"Multi-Agent Coordination — Shared
+  Surface" — cross-module blast radius (consumed by both hft-ops + lob-
+  model-trainer; mutating side-effect on ledger files). Phase 3 closing
+  commit will add the canonical-home entry + Change-Coordination Checklist
+  row "Modify the experiment_recorder SSoT helper".
+
+### Tests
+
+- **+40 new tests** at `tests/test_experiment_recorder.py` (40/40 passing;
+  full suite 754 passes — was 714 baseline). Coverage:
+  - `HarvestedTrustColumns` defaults + dataclass independence (3 tests)
+  - `harvest_trust_columns` happy paths (3 tests)
+  - `harvest_trust_columns` invalid format paths (7 tests; per-field
+    fail-loud verification)
+  - `harvest_trust_columns_from_signal_metadata` file I/O paths
+    (missing/malformed/non-dict root/happy/legacy — 5 tests)
+  - `record_from_artifacts` basic invocations (3 tests; experiment_id
+    format + override)
+  - mutually-exclusive trust source raises (1 test)
+  - trust harvesting + model_config_hash injection (4 tests; caller dict
+    non-mutation lock)
+  - Phase Y composer success/graceful-None/require-complete-raises (3 tests)
+  - Ledger I/O paths (atomic round-trip + records/ subdir + missing-path
+    raises — 4 tests)
+  - SSoT discipline locks (2 tests; canonical-hash + module-import
+    invariants)
+  - Fingerprint format validation (4 tests; pre-commit architect MEDIUM-1
+    closure — fail-loud per hft-rules §5 on malformed inputs)
+  - Override precedence across both trust sources (1 test; pre-commit
+    architect HIGH-1 closure)
+
+### Notes
+
+- `INDEX_SCHEMA_VERSION` UNCHANGED at `1.6.0` — no whitelist field added.
+- `SCHEMA_VERSION` UNCHANGED at `3.0` — additive Python-API change only.
+- Phase 2 (hft-ops cli.py refactor) + Phase 3 (lob-model-trainer
+  `--register-to-ledger` flag) ship in separate commits per Inter-Repo
+  Topology atomic-bundle discipline.
+
 ## [2.7.1] — 2026-05-14
 
 ### Fixed (Phase X.2.A.2 / #PY-218 — TB classification label_encoding format drift)

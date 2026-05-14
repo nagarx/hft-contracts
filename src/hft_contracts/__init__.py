@@ -21,7 +21,7 @@ Usage:
     from hft_contracts import parse_iso8601_utc, is_after_cutoff
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
@@ -327,6 +327,11 @@ __all__ = [
     "compute_experiment_provenance_hash",
     "diagnose_provenance_completeness",
     "ProvenanceDiagnostic",
+    # Phase 8D / #PY-223 (2026-05-14): record-from-artifacts SSoT helper.
+    "HarvestedTrustColumns",
+    "harvest_trust_columns",
+    "harvest_trust_columns_from_signal_metadata",
+    "record_from_artifacts",
     "FeatureImportance",
     "FeatureImportanceArtifact",
     "FEATURE_IMPORTANCE_SCHEMA_VERSION",
@@ -420,6 +425,18 @@ from hft_contracts.experiment_record import (
     compute_experiment_provenance_hash,
     diagnose_provenance_completeness,
     ProvenanceDiagnostic,
+)
+# Phase 8D / #PY-223 (2026-05-14): SSoT helper that composes ExperimentRecord
+# from on-disk training artifacts. Consumed by BOTH hft-ops
+# ``cli.py::_record_experiment`` AND lob-model-trainer
+# ``scripts/train.py --register-to-ledger``. Closes the R-17a-class direct-
+# trainer ~26% invisibility class via single ExperimentRecord construction
+# site + single Phase Y composer call site + single ledger-write site.
+from hft_contracts.experiment_recorder import (
+    HarvestedTrustColumns,
+    harvest_trust_columns,
+    harvest_trust_columns_from_signal_metadata,
+    record_from_artifacts,
 )
 from hft_contracts.feature_importance_artifact import (
     FeatureImportance,
