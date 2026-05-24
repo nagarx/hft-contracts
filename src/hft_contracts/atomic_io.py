@@ -44,6 +44,21 @@ imports it top-level.
   rely on this (JSON only).
 - ``default=str`` — graceful handling of ``Path``, ``datetime``, ``Enum``
   (JSON only).
+
+  **Caller-responsibility note** (#PY-371 cycle 2026-05-24; L101 lesson):
+  ``default=str`` SILENTLY COERCES any non-JSON-native type (``set``,
+  custom objects, ``bytes``, ...) into its ``repr`` string. This is
+  graceful for the common Path/datetime/Enum case but VIOLATES hft-rules
+  §8 ("never silently drop, clamp, or fix data") when callers may pass
+  user-supplied dicts containing unexpected types. When fail-loud-on-
+  bad-types semantics are required, the caller MUST pre-validate via a
+  bare ``json.dumps(obj)`` call BEFORE invoking ``atomic_write_json``.
+  ``json.dumps`` without ``default=`` raises ``TypeError`` on unsupported
+  types — preserving §8 fail-loud at the caller boundary while still
+  gaining tmp+fsync+os.replace atomicity from this SSoT for the actual
+  write. **Canonical exemplar**:
+  ``databento-ingest/src/databento_ingest/manifest.py:80-81`` —
+  pre-validates a caller-supplied ``metadata: dict`` before atomic write.
 - ``indent=2`` — golden-fixture convention (JSON only).
 - ``min_bytes=1`` — empty-write guard for binary primitives, per
   hft-rules §8 ("never silently drop, clamp, or fix data without
