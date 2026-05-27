@@ -634,3 +634,50 @@ class TestSSoTReuseDiscipline:
             "experiment_recorder.py must not call hashlib directly; "
             "delegate to hft_contracts.canonical_hash SSoT."
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# M-2 fix (2026-05-28): feature_set_ref content_hash format validation
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestHarvestTrustColumnsContentHashFormat:
+    """M-2: content_hash on feature_set_ref must be validated against
+    CONTENT_HASH_RE, for parity with compatibility_fingerprint and
+    model_config_hash in the same function."""
+
+    def test_valid_content_hash_accepted(self):
+        result = harvest_trust_columns({
+            "feature_set_ref": {"name": "test", "content_hash": "a" * 64},
+        })
+        assert result.feature_set_ref is not None
+        assert result.feature_set_ref["content_hash"] == "a" * 64
+        assert not result.harvest_errors
+
+    def test_malformed_content_hash_rejected(self):
+        result = harvest_trust_columns({
+            "feature_set_ref": {"name": "test", "content_hash": "NOT_VALID"},
+        })
+        assert result.feature_set_ref is None
+        assert len(result.harvest_errors) == 1
+        assert "CONTENT_HASH_RE" in result.harvest_errors[0]
+
+    def test_uppercase_hex_rejected(self):
+        result = harvest_trust_columns({
+            "feature_set_ref": {"name": "test", "content_hash": "A" * 64},
+        })
+        assert result.feature_set_ref is None
+        assert len(result.harvest_errors) == 1
+
+    def test_empty_name_rejected(self):
+        result = harvest_trust_columns({
+            "feature_set_ref": {"name": "", "content_hash": "a" * 64},
+        })
+        assert result.feature_set_ref is None
+        assert len(result.harvest_errors) == 1
+
+    def test_short_hash_rejected(self):
+        result = harvest_trust_columns({
+            "feature_set_ref": {"name": "test", "content_hash": "a" * 63},
+        })
+        assert result.feature_set_ref is None
+        assert len(result.harvest_errors) == 1

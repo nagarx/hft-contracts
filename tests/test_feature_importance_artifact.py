@@ -450,3 +450,171 @@ class TestPostAuditFixes:
             "If these match, a silent schema_version normalization was "
             "added — update this test to document the new precedence."
         )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# H-1 parity fix (2026-05-28): __post_init__ validation regression tests
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestFeatureImportancePostInitValidation:
+    """FeatureImportance sub-record __post_init__ validation.
+
+    Locks the validation added for H-1 parity with MetricCIBound /
+    PairwiseResultRecord.
+    """
+
+    def test_valid_feature_passes(self):
+        _make_feature("f", 0)
+
+    def test_nan_importance_mean_rejected(self):
+        with pytest.raises(ValueError, match="importance_mean"):
+            FeatureImportance(
+                feature_name="f", feature_index=0,
+                importance_mean=float("nan"), importance_std=0.01,
+                ci_lower_95=0.0, ci_upper_95=0.1,
+                n_permutations=100, n_seeds_aggregated=3, stability=0.5,
+            )
+
+    def test_negative_importance_std_rejected(self):
+        with pytest.raises(ValueError, match="importance_std"):
+            FeatureImportance(
+                feature_name="f", feature_index=0,
+                importance_mean=0.02, importance_std=-0.01,
+                ci_lower_95=0.0, ci_upper_95=0.1,
+                n_permutations=100, n_seeds_aggregated=3, stability=0.5,
+            )
+
+    def test_inverted_ci_rejected(self):
+        with pytest.raises(ValueError, match="inverted"):
+            FeatureImportance(
+                feature_name="f", feature_index=0,
+                importance_mean=0.02, importance_std=0.01,
+                ci_lower_95=0.9, ci_upper_95=0.1,
+                n_permutations=100, n_seeds_aggregated=3, stability=0.5,
+            )
+
+    def test_zero_n_permutations_rejected(self):
+        with pytest.raises(ValueError, match="n_permutations"):
+            FeatureImportance(
+                feature_name="f", feature_index=0,
+                importance_mean=0.02, importance_std=0.01,
+                ci_lower_95=0.0, ci_upper_95=0.1,
+                n_permutations=0, n_seeds_aggregated=3, stability=0.5,
+            )
+
+    def test_stability_above_one_rejected(self):
+        with pytest.raises(ValueError, match="stability"):
+            FeatureImportance(
+                feature_name="f", feature_index=0,
+                importance_mean=0.02, importance_std=0.01,
+                ci_lower_95=0.0, ci_upper_95=0.1,
+                n_permutations=100, n_seeds_aggregated=3, stability=1.5,
+            )
+
+    def test_empty_feature_name_rejected(self):
+        with pytest.raises(ValueError, match="feature_name"):
+            FeatureImportance(
+                feature_name="", feature_index=0,
+                importance_mean=0.02, importance_std=0.01,
+                ci_lower_95=0.0, ci_upper_95=0.1,
+                n_permutations=100, n_seeds_aggregated=3, stability=0.5,
+            )
+
+    def test_negative_feature_index_rejected(self):
+        with pytest.raises(ValueError, match="feature_index"):
+            FeatureImportance(
+                feature_name="f", feature_index=-1,
+                importance_mean=0.02, importance_std=0.01,
+                ci_lower_95=0.0, ci_upper_95=0.1,
+                n_permutations=100, n_seeds_aggregated=3, stability=0.5,
+            )
+
+    def test_importance_mean_outside_ci_allowed(self):
+        """importance_mean can be outside [ci_lower, ci_upper] because
+        the CI bounds are on the null distribution, not centered on mean."""
+        fi = FeatureImportance(
+            feature_name="f", feature_index=0,
+            importance_mean=0.5, importance_std=0.01,
+            ci_lower_95=-0.1, ci_upper_95=0.1,
+            n_permutations=100, n_seeds_aggregated=3, stability=0.9,
+        )
+        assert fi.importance_mean > fi.ci_upper_95
+
+    def test_n_seeds_aggregated_zero_accepted(self):
+        """n_seeds_aggregated=0 is legitimate when all seeds fail for a
+        feature (per permutation.py:323-328). Locks the non-negative
+        (not positive) validator choice — prevents regression to
+        validate_positive_int."""
+        fi = FeatureImportance(
+            feature_name="f", feature_index=0,
+            importance_mean=0.0, importance_std=0.0,
+            ci_lower_95=0.0, ci_upper_95=0.0,
+            n_permutations=100, n_seeds_aggregated=0, stability=0.0,
+        )
+        assert fi.n_seeds_aggregated == 0
+
+    def test_n_seeds_aggregated_negative_rejected(self):
+        with pytest.raises(ValueError, match="n_seeds_aggregated"):
+            FeatureImportance(
+                feature_name="f", feature_index=0,
+                importance_mean=0.0, importance_std=0.0,
+                ci_lower_95=0.0, ci_upper_95=0.0,
+                n_permutations=100, n_seeds_aggregated=-1, stability=0.0,
+            )
+
+
+class TestFeatureImportanceArtifactPostInitValidation:
+    """FeatureImportanceArtifact __post_init__ validation.
+
+    Locks the validation added for H-1 parity with Phase 2 artifacts.
+    """
+
+    def test_valid_artifact_passes(self):
+        _make_artifact()
+
+    def test_nan_baseline_rejected(self):
+        with pytest.raises(ValueError, match="baseline_value"):
+            _make_artifact(baseline_value=float("nan"))
+
+    def test_zero_block_length_rejected(self):
+        with pytest.raises(ValueError, match="block_length_samples"):
+            _make_artifact(block_length_samples=0)
+
+    def test_negative_n_permutations_rejected(self):
+        with pytest.raises(ValueError, match="n_permutations"):
+            _make_artifact(n_permutations=-1)
+
+    def test_zero_n_seeds_rejected(self):
+        with pytest.raises(ValueError, match="n_seeds"):
+            _make_artifact(n_seeds=0)
+
+    def test_empty_method_rejected(self):
+        with pytest.raises(ValueError, match="method"):
+            _make_artifact(method="")
+
+    def test_empty_experiment_id_accepted(self):
+        """experiment_id="" is valid — populated post-hoc by orchestrator."""
+        art = _make_artifact(experiment_id="")
+        assert art.experiment_id == ""
+
+    def test_empty_fingerprint_accepted(self):
+        """fingerprint="" is valid — populated post-hoc by orchestrator."""
+        art = _make_artifact(fingerprint="")
+        assert art.fingerprint == ""
+
+    def test_malformed_feature_set_ref_content_hash_rejected(self):
+        with pytest.raises(ValueError, match="SHA-256"):
+            _make_artifact(
+                feature_set_ref={"name": "test", "content_hash": "NOT_VALID"},
+            )
+
+    def test_feature_set_ref_none_accepted(self):
+        """None feature_set_ref should pass validation (triggers WARN only)."""
+        art = _make_artifact(feature_set_ref=None)
+        assert art.feature_set_ref is None
+
+    def test_from_dict_round_trip_still_works(self):
+        """Existing from_dict must pass new validation."""
+        art = _make_artifact()
+        reloaded = FeatureImportanceArtifact.from_dict(art.to_dict())
+        assert reloaded == art

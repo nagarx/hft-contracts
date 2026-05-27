@@ -108,6 +108,37 @@ class FeatureImportance:
     n_seeds_aggregated: int
     stability: float
 
+    def __post_init__(self) -> None:
+        from hft_contracts._validators import (
+            validate_ci_ordering,
+            validate_closed_unit_interval,
+            validate_finite_float,
+            validate_non_empty_string,
+            validate_non_negative_int,
+            validate_positive_int,
+        )
+        ctx = "FeatureImportance"
+        validate_non_empty_string(self.feature_name, "feature_name", context=ctx)
+        validate_non_negative_int(self.feature_index, "feature_index", context=ctx)
+        validate_finite_float(self.importance_mean, "importance_mean", context=ctx)
+        validate_finite_float(self.importance_std, "importance_std", context=ctx)
+        if self.importance_std < 0.0:
+            raise ValueError(
+                f"FeatureImportance: importance_std={self.importance_std} "
+                f"must be >= 0.0"
+            )
+        validate_finite_float(self.ci_lower_95, "ci_lower_95", context=ctx)
+        validate_finite_float(self.ci_upper_95, "ci_upper_95", context=ctx)
+        validate_ci_ordering(
+            self.ci_lower_95, self.ci_upper_95,
+            context=ctx, low_name="ci_lower_95", high_name="ci_upper_95",
+        )
+        validate_positive_int(self.n_permutations, "n_permutations", context=ctx)
+        # n_seeds_aggregated=0 is legitimate when all seeds fail for a
+        # feature (per permutation.py:323-328 which drops empty seeds).
+        validate_non_negative_int(self.n_seeds_aggregated, "n_seeds_aggregated", context=ctx)
+        validate_closed_unit_interval(self.stability, "stability", context=ctx)
+
 
 # ---------------------------------------------------------------------------
 # Full artifact
@@ -190,21 +221,43 @@ class FeatureImportanceArtifact:
     def __post_init__(self) -> None:
         """Validate at construction time (fail-loud per hft-rules §8).
 
-        Phase 8C-α post-audit round-2 architect-Q9.1: feature_set_ref is
-        declared required in the TOML contract but ``Optional`` in
-        Python to preserve exploratory workflows (ad-hoc feature_indices
-        without a registered FeatureSet). When method == "permutation"
-        AND feature_set_ref is None, the artifact CAN still be emitted +
-        content-addressed + stored in the ledger — but Stage C.5
-        evaluator feedback-merge cannot consume it (no feature-set to
-        reconcile against profiles). Emit a WARN so operators know the
-        artifact is a dead-end for feedback-merge, not a silent drop
-        (§8 explicit: never silently "fix" data without diagnostics).
+        Phase 8C-α post-audit + 2026-05-28 H-1 parity fix: brings
+        validation to parity with the Phase 2 gold-standard artifacts
+        (TestMetricsCIArtifact / PairwiseCompareArtifact). Zero
+        serialized artifacts exist on disk at fix time — no backward-
+        compatibility risk.
 
-        This is informational, not fatal. Exploratory runs remain first-
-        class citizens — an operator auditing feature importance of an
-        ad-hoc subset is a legitimate use case that should NOT raise.
+        The WARN-level feature_set_ref check (architect-Q9.1) is
+        preserved at the end — exploratory runs remain first-class.
         """
+        from hft_contracts._validators import (
+            validate_feature_set_ref,
+            validate_finite_float,
+            validate_min_int,
+            validate_non_empty_string,
+            validate_positive_int,
+        )
+        ctx = "FeatureImportanceArtifact"
+
+        validate_non_empty_string(self.schema_version, "schema_version", context=ctx)
+        validate_non_empty_string(self.method, "method", context=ctx)
+        validate_non_empty_string(self.baseline_metric, "baseline_metric", context=ctx)
+        validate_non_empty_string(self.eval_split, "eval_split", context=ctx)
+        # experiment_id, fingerprint, model_type, timestamp_utc are
+        # intentionally allowed to be "" at construction time: the trainer's
+        # PermutationImportanceCallback constructs the artifact before
+        # the orchestrator assigns fingerprint/experiment_id. These are
+        # populated post-hoc at ledger-register time.
+
+        validate_finite_float(self.baseline_value, "baseline_value", context=ctx)
+        validate_min_int(
+            self.block_length_samples, "block_length_samples", 1, context=ctx,
+        )
+        validate_positive_int(self.n_permutations, "n_permutations", context=ctx)
+        validate_positive_int(self.n_seeds, "n_seeds", context=ctx)
+
+        validate_feature_set_ref(self.feature_set_ref, "feature_set_ref", context=ctx)
+
         if (
             self.method == "permutation"
             and self.feature_set_ref is None

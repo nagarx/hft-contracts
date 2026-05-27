@@ -145,20 +145,29 @@ def harvest_trust_columns(
     out = HarvestedTrustColumns()
 
     # feature_set_ref: nested dict {name, content_hash} (Phase 4 4c.4).
+    # M-2 fix (2026-05-28): validate content_hash against CONTENT_HASH_RE
+    # for parity with compatibility_fingerprint / model_config_hash below.
     raw_ref = captured_metrics.get("feature_set_ref")
     if raw_ref is not None:
         if isinstance(raw_ref, dict):
             name = raw_ref.get("name")
             content_hash = raw_ref.get("content_hash")
-            if isinstance(name, str) and isinstance(content_hash, str):
-                out.feature_set_ref = {
-                    "name": name,
-                    "content_hash": content_hash,
-                }
+            if isinstance(name, str) and name and isinstance(content_hash, str):
+                if CONTENT_HASH_RE.match(content_hash):
+                    out.feature_set_ref = {
+                        "name": name,
+                        "content_hash": content_hash,
+                    }
+                else:
+                    out.harvest_errors.append(
+                        f"feature_set_ref.content_hash={content_hash!r} "
+                        f"does not match CONTENT_HASH_RE (expected "
+                        f"64-char lowercase hex SHA-256)"
+                    )
             else:
                 out.harvest_errors.append(
-                    f"feature_set_ref dict has non-string name "
-                    f"({type(name).__name__}) or content_hash "
+                    f"feature_set_ref dict has invalid name "
+                    f"({type(name).__name__}, {name!r}) or content_hash "
                     f"({type(content_hash).__name__})"
                 )
         else:
