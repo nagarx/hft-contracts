@@ -1513,3 +1513,80 @@ class TestSubCycle2PackageSurface:
             assert name in hft_contracts.__all__, (
                 f"{name!r} must appear in hft_contracts.__all__"
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Defensive parsing guards (2026-05-28 audit H-2, L-3, L-4)
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestFromDictDefensiveParsing:
+    """Regression tests for from_dict with malformed or edge-case inputs.
+
+    Locks the defensive guards added for audit findings H-2 / L-3 / L-4.
+    """
+
+    def test_provenance_null_does_not_crash(self):
+        """H-2: data.get('provenance', {}) returns None when key present
+        with None value. dict(None) was crashing with TypeError."""
+        data = {
+            "experiment_id": "test_h2",
+            "name": "h2_test",
+            "status": "completed",
+            "provenance": None,
+        }
+        record = ExperimentRecord.from_dict(data)
+        assert record.experiment_id == "test_h2"
+        assert record.provenance is not None
+
+    def test_provenance_absent_uses_default(self):
+        """Baseline: missing provenance key should produce default."""
+        data = {"experiment_id": "test_absent", "name": "n", "status": "ok"}
+        record = ExperimentRecord.from_dict(data)
+        assert record.provenance is not None
+
+    def test_gate_reports_non_dict_coerced(self):
+        """L-4: gate_reports as string in JSON should not crash setdefault."""
+        data = {
+            "experiment_id": "test_l4",
+            "name": "l4_test",
+            "status": "completed",
+            "gate_reports": "not_a_dict",
+        }
+        record = ExperimentRecord.from_dict(data)
+        assert isinstance(record.gate_reports, dict)
+
+    def test_gate_reports_null_coerced(self):
+        """L-4 variant: gate_reports=None should also be handled."""
+        data = {
+            "experiment_id": "test_l4b",
+            "name": "l4b",
+            "status": "completed",
+            "gate_reports": None,
+        }
+        record = ExperimentRecord.from_dict(data)
+        assert isinstance(record.gate_reports, dict)
+
+    def test_training_config_null_does_not_crash_index_entry(self):
+        """L-3: training_config=None in from_dict should not crash
+        index_entry() when accessing nested .get() chains."""
+        data = {
+            "experiment_id": "test_l3",
+            "name": "l3_test",
+            "status": "completed",
+            "training_config": None,
+        }
+        record = ExperimentRecord.from_dict(data)
+        entry = record.index_entry()
+        assert entry["model_type"] == ""
+        assert entry["labeling_strategy"] == ""
+
+    def test_training_metrics_null_does_not_crash(self):
+        """training_metrics=None should not crash the migration shim."""
+        data = {
+            "experiment_id": "test_tm_null",
+            "name": "tm",
+            "status": "completed",
+            "training_metrics": None,
+        }
+        record = ExperimentRecord.from_dict(data)
+        assert isinstance(record.training_metrics, dict)

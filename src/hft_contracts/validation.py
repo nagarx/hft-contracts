@@ -139,6 +139,8 @@ def validate_normalization_not_applied(metadata: dict) -> None:
         ContractError: If normalization was already applied upstream.
     """
     norm_info = metadata.get("normalization", {})
+    if not isinstance(norm_info, dict):
+        return
 
     applied = norm_info.get("applied", norm_info.get("normalization_applied", False))
     if applied:

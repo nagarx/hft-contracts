@@ -29,6 +29,7 @@ split limits risk while still establishing the contract-plane authority.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
@@ -38,6 +39,8 @@ from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
 from hft_contracts.atomic_io import atomic_write_json
 from hft_contracts.provenance import Provenance
 from hft_contracts.signal_manifest import CONTENT_HASH_RE
+
+_logger = logging.getLogger(__name__)
 
 
 # -----------------------------------------------------------------------------
@@ -469,7 +472,9 @@ class ExperimentRecord:
         records never emit either key, so after 2026-08-01 the shim
         is a no-op and can be deleted.
         """
-        prov_data = data.get("provenance", {})
+        prov_data = data.get("provenance") or {}
+        if "provenance" in data and not data["provenance"]:
+            _logger.debug("from_dict: coerced falsy provenance=%r to {}", data["provenance"])
         record = cls(**{
             k: v for k, v in data.items()
             if k in cls.__dataclass_fields__ and k != "provenance"
@@ -483,8 +488,13 @@ class ExperimentRecord:
         # would mutate ``data["training_metrics"]`` too — surprising callers
         # that hold the input (cache layers, round-trip tests, etc.). Copy
         # isolates the mutation to the record's own attribute.
-        record.training_metrics = dict(record.training_metrics)
+        if not isinstance(record.training_metrics, dict):
+            _logger.debug("from_dict: coerced non-dict training_metrics=%r to {}", type(record.training_metrics).__name__)
+        record.training_metrics = dict(record.training_metrics or {})
         legacy_gate = record.training_metrics.pop("post_training_gate", None)
+        if not isinstance(record.gate_reports, dict):
+            _logger.debug("from_dict: coerced non-dict gate_reports=%r to {}", type(record.gate_reports).__name__)
+            record.gate_reports = {}
         if isinstance(legacy_gate, dict):
             record.gate_reports.setdefault("post_training_gate", legacy_gate)
         # Drop the legacy summary projection — redundant with GateReport.summary().
@@ -596,8 +606,8 @@ class ExperimentRecord:
                     "win_rate", "total_trades",
                 )
             },
-            "model_type": self.training_config.get("model", {}).get("model_type", ""),
-            "labeling_strategy": self.training_config.get("data", {}).get(
+            "model_type": (self.training_config or {}).get("model", {}).get("model_type", ""),
+            "labeling_strategy": (self.training_config or {}).get("data", {}).get(
                 "labeling_strategy", ""
             ),
             "sweep_id": self.sweep_id,

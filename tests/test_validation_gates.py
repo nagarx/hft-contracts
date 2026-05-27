@@ -530,3 +530,27 @@ class TestAutoDetectValidation:
         meta = _make_tlob_metadata(n_features=34)
         with pytest.raises(ContractError, match="Feature count 34"):
             validate_export_contract(meta)
+
+
+class TestValidateNormalizationDefensiveGuard:
+    """M-1 regression: validate_normalization_not_applied with non-dict."""
+
+    def test_string_normalization_does_not_crash(self):
+        """M-1: metadata with normalization='none' (string) should not
+        crash with AttributeError on .get()."""
+        meta = {"normalization": "none"}
+        validate_normalization_not_applied(meta)
+
+    def test_none_normalization_does_not_crash(self):
+        meta = {"normalization": None}
+        validate_normalization_not_applied(meta)
+
+    def test_int_normalization_does_not_crash(self):
+        meta = {"normalization": 42}
+        validate_normalization_not_applied(meta)
+
+    def test_dict_normalization_applied_still_raises(self):
+        """Existing behavior preserved: dict with applied=True raises."""
+        meta = {"normalization": {"applied": True}}
+        with pytest.raises(ContractError, match="already normalized"):
+            validate_normalization_not_applied(meta)
