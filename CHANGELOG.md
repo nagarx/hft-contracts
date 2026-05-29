@@ -11,6 +11,84 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+## [2.8.1] — 2026-05-28
+
+PATCH release closing 6 findings from the 2026-05-28 comprehensive
+validation audit (10-agent deep-dive + 4-agent adversarial review).
+Bug fixes + internal validation hardening; no public API added
+(`_validators.py` is underscore-internal). `SCHEMA_VERSION` unchanged
+at `3.0` — no data-contract change.
+
+### Fixed (defensive parsing guards — commit `dd6c269`)
+
+- **H-2 — `ExperimentRecord.from_dict` crash on `"provenance": null`.**
+  `data.get("provenance", {})` returns `None` when the key is present
+  with a `None` value (the default applies only to absent keys), so the
+  subsequent `dict(None)` raised `TypeError`. Fixed to
+  `data.get("provenance") or {}`.
+- **L-3 — `index_entry()` crash when `training_config=None`.** The
+  nested `.get("model", {}).get(...)` chain raised `AttributeError` on a
+  `None` config from malformed JSON. Fixed to `(self.training_config or {}).get(...)`.
+- **L-4 — `from_dict` gate-report migration crash on non-dict
+  `gate_reports`.** `setdefault` on a string/list value raised
+  `AttributeError`. Added an `isinstance(..., dict)` coercion guard.
+- **M-1 — `validate_normalization_not_applied` crash on non-dict
+  `normalization`.** A string value (e.g. `"none"`) made `.get("applied")`
+  raise `AttributeError`. Added an `isinstance(norm_info, dict)` early
+  return.
+- All coercion sites emit `_logger.debug()` diagnostics per hft-rules §8
+  (never silently fix data without recording diagnostics).
+
+### Added / Changed (artifact validation parity — commit `1cab2a0`)
+
+- **H-1 — `FeatureImportanceArtifact` + `FeatureImportance`
+  `__post_init__` validation.** Previously a single WARN-only check while
+  the Phase 2 gold-standard artifacts (`TestMetricsCIArtifact`,
+  `PairwiseCompareArtifact`) carried 80–140 lines of construction-time
+  validation each. Added finite-float, positive/non-negative-int,
+  CI-ordering, `stability ∈ [0,1]`, `feature_set_ref.content_hash`
+  format, and non-empty identity-string checks. Backward-compatible:
+  zero serialized artifacts exist on disk; the producer
+  (`PermutationImportanceCallback`) always passes valid values.
+  Design choices: `fingerprint`/`experiment_id`/`model_type`/
+  `timestamp_utc` accept `""` (populated post-hoc at ledger-register
+  time); `n_seeds_aggregated >= 0` (legitimate when all seeds fail for a
+  feature); CI ordering is `lower <= upper` only (the bounds are on the
+  permutation-null distribution, so `importance_mean` may fall outside).
+- **M-2 — `harvest_trust_columns` now validates
+  `feature_set_ref.content_hash` against `CONTENT_HASH_RE`**, for parity
+  with the sibling `compatibility_fingerprint` / `model_config_hash`
+  fields in the same function. Also rejects empty-string `name`. Soft
+  failure (appends to `harvest_errors`), consistent with the
+  observation-tier harvester pattern.
+
+### Added (internal module)
+
+- **`hft_contracts._validators`** (NEW, module-internal) — 11 shared
+  validation primitives extracted from the duplicated inline patterns in
+  the Phase 2 artifacts (hft-rules §0 reuse-first). Zero intra-package
+  imports; defines a local `_SHA256_HEX_RE` identical to
+  `signal_manifest.CONTENT_HASH_RE` to avoid a utility→domain dependency
+  inversion. The validators are strictly tighter than the Phase 2 inline
+  checks (explicit `bool`-is-not-`int` guard + type-check before range).
+
+### Tests
+
+- **+90 tests** (754 → 844): `tests/test_validators.py` (NEW, 11
+  functions), `FeatureImportance`/`FeatureImportanceArtifact`
+  `__post_init__` rejection + acceptance locks (incl. `n_seeds_aggregated=0`
+  acceptance), `from_dict` defensive-parsing regressions, M-2 content-hash
+  format rejection, and `validate_normalization_not_applied` non-dict
+  guards.
+
+### Consumer coordination
+
+- **lob-model-trainer** test fixture corrected (`tests/test_permutation_importance.py`,
+  commit `df5ff67`): `content_hash="h"*64` → `"a"*64` (`'h'` is not a hex
+  character; previously undetected because the artifact had no
+  `content_hash` format validation). Full consumer suites verified green
+  post-change: hft-ops 1055 passed, lob-model-trainer importance 43 passed.
+
 ## [2.8.0] — 2026-05-14
 
 ### Added (Phase 8D / #PY-223 — `experiment_recorder` SSoT helper)

@@ -21,7 +21,7 @@ Usage:
     from hft_contracts import parse_iso8601_utc, is_after_cutoff
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 
 # -- Generated contract constants (from pipeline_contract.toml) --
 from hft_contracts._generated import (
