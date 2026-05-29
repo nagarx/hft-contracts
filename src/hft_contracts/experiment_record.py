@@ -606,8 +606,8 @@ class ExperimentRecord:
                     "win_rate", "total_trades",
                 )
             },
-            "model_type": (self.training_config or {}).get("model", {}).get("model_type", ""),
-            "labeling_strategy": (self.training_config or {}).get("data", {}).get(
+            "model_type": ((self.training_config or {}).get("model") or {}).get("model_type", ""),
+            "labeling_strategy": ((self.training_config or {}).get("data") or {}).get(
                 "labeling_strategy", ""
             ),
             "sweep_id": self.sweep_id,

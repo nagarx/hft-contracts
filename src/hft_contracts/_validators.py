@@ -10,9 +10,20 @@ Consumers within hft-contracts:
   - test_metrics_ci_artifact.py (future migration)
   - pairwise_compare_artifact.py (future migration)
 
-Extracts the 10 validation patterns used across the Phase 2 gold-
+Extracts the 11 validation primitives used across the Phase 2 gold-
 standard artifacts (TestMetricsCIArtifact + PairwiseCompareArtifact)
 into a shared internal SSoT per hft-rules section 0 (reuse-first).
+
+Reserved-for-migration API: `validate_open_unit_interval`,
+`validate_sha256_hex`, and `validate_optional_sha256_hex` currently
+have no in-package caller. They are the API surface for the pending
+Phase 2 consolidation — TestMetricsCIArtifact validates `ci in (0,1)`
+and PairwiseCompareArtifact validates `alpha in (0,1)` + Optional
+64-hex fingerprints with INLINE checks today; migrating those onto
+these primitives is the planned next step that also closes the
+bool-rejection divergence (the inline checks accept `True` as a
+number; these primitives reject it). Kept rather than deleted to
+avoid churn when that migration lands.
 
 Error convention: all validators raise ValueError immediately on
 failure (matches existing artifact __post_init__ pattern — fail-loud

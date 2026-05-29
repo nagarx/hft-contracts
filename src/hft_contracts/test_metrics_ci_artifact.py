@@ -378,7 +378,7 @@ class TestMetricsCIArtifact:
         """
         bound_fields = {f.name for f in dataclasses.fields(MetricCIBound)}
         metrics: Dict[str, MetricCIBound] = {}
-        for name, bd in data.get("metrics", {}).items():
+        for name, bd in (data.get("metrics") or {}).items():
             metrics[name] = MetricCIBound(
                 **{k: v for k, v in bd.items() if k in bound_fields}
             )
@@ -400,7 +400,7 @@ class TestMetricsCIArtifact:
             fingerprint=data.get("fingerprint", ""),
             model_type=data.get("model_type", ""),
             timestamp_utc=data.get("timestamp_utc", ""),
-            method_caveats=tuple(data.get("method_caveats", ())),
+            method_caveats=tuple(data.get("method_caveats") or ()),
         )
 
     def save(self, path: Path) -> None:

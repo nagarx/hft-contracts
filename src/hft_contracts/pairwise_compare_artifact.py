@@ -530,7 +530,7 @@ class PairwiseCompareArtifact:
             PairwiseResultRecord(
                 **{k: v for k, v in p.items() if k in record_fields}
             )
-            for p in data.get("pairs", [])
+            for p in (data.get("pairs") or [])
         )
         return cls(
             schema_version=data["schema_version"],
@@ -561,7 +561,7 @@ class PairwiseCompareArtifact:
             pairs=pairs,
             treatment_labels=tuple(data["treatment_labels"]),
             timestamp_utc=data["timestamp_utc"],
-            method_caveats=tuple(data.get("method_caveats", ())),
+            method_caveats=tuple(data.get("method_caveats") or ()),
         )
 
     def save(self, path: Path) -> None:

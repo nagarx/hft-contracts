@@ -471,3 +471,23 @@ class TestFromHftMetricsResult:
         assert record.treatment_b_label == "R10_TLOB_CVML"
         assert record.delta == pytest.approx(0.029)
         assert record.n_nonfinite_replaced == 2
+
+
+class TestFromDictNullHardening:
+    """Audit finding #1 (2026-05-28): from_dict must tolerate present-but-null
+    collection fields (the H-2 bug class). pairs:null and method_caveats:null
+    would crash with TypeError before the `or [] / or ()` coercion fix."""
+
+    def test_method_caveats_null_coerced(self):
+        d = _make_k3_artifact().to_dict()
+        d["method_caveats"] = None
+        art = PairwiseCompareArtifact.from_dict(d)
+        assert art.method_caveats == ()
+
+    def test_pairs_null_coerced_then_count_check_raises_clean(self):
+        # pairs=None coerces to [] → __post_init__ raises a CLEAN ValueError
+        # (K*(K-1)/2 count mismatch), not a cryptic `for p in None` TypeError.
+        d = _make_k3_artifact().to_dict()
+        d["pairs"] = None
+        with pytest.raises(ValueError):
+            PairwiseCompareArtifact.from_dict(d)

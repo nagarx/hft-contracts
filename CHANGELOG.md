@@ -11,6 +11,55 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+### Fixed (from_dict null-collection crash family — 2026-05-29 post-release audit)
+
+Second adversarial pass (5 fresh-eye agents) found the 2.8.1 H-2 fix
+(`ExperimentRecord.from_dict` on `provenance: null`) was the shallowest
+instance of a 7-site bug class: a key PRESENT with a literal `null` value
+flows past `dict.get(key, default)` (the default applies only to ABSENT
+keys) and crashes at `dict(None)` / `None.items()` / `tuple(None)` /
+`for x in None`. Hardened all remaining sites with the same `x or <empty>`
+coercion:
+
+- **`provenance.py`** — `Provenance.from_dict` `git: null` (PROVEN to crash
+  `ExperimentRecord.load()` end-to-end → would crash the hft-ops ledger
+  index build) + `config_hashes: null`.
+- **`feature_importance_artifact.py`** — `features: null`, `method_caveats: null`.
+- **`test_metrics_ci_artifact.py`** — `metrics: null`, `method_caveats: null`.
+- **`pairwise_compare_artifact.py`** — `pairs: null`, `method_caveats: null`.
+- **`feature_sets/schema.py`** — `criteria: null`, `feature_names: null`.
+- **`experiment_record.py`** — `index_entry()` chained `.get("model", {}).get(...)`
+  crashed on `training_config={"model": null}` at projection time (delayed
+  failure: record loads, then the ledger index build crashes). Hardened to
+  `((... or {}).get("model") or {}).get(...)`.
+
+Coerced-to-empty values that then fail a non-empty `__post_init__` invariant
+(metrics, pairs) now raise a CLEAN `ValueError` instead of a cryptic
+`TypeError`.
+
+### Changed
+
+- **`_validators.py`** docstring count corrected (10 → 11 primitives) +
+  documented that `validate_open_unit_interval` / `validate_sha256_hex` /
+  `validate_optional_sha256_hex` are the reserved API surface for the pending
+  Phase 2 artifact consolidation (no in-package caller yet; kept rather than
+  deleted to avoid churn when that migration lands).
+
+### Tests
+
+- **+14**: `tests/test_from_dict_null_hardening.py` (NEW, 12 — locks the
+  cross-module from_dict null-collection contract + `_SHA256_HEX_RE` ↔
+  `CONTENT_HASH_RE` regex parity) + 2 pairwise null-hardening regressions.
+
+### Notes
+
+- **Version bump deferred to a coordinated release.** `__version__` /
+  `pyproject.toml` are intentionally NOT bumped in this commit: `__init__.py`
+  is concurrently being edited (a new `validate_export_dir` public validator),
+  which is a MINOR-grade addition. The next release should stamp both this
+  PATCH-grade hardening AND that MINOR feature together (→ 2.9.0) once the
+  concurrent work lands, rather than racing the shared `__init__.py`.
+
 ## [2.8.1] — 2026-05-28
 
 PATCH release closing 6 findings from the 2026-05-28 comprehensive

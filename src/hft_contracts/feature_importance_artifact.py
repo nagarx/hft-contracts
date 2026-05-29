@@ -322,7 +322,7 @@ class FeatureImportanceArtifact:
         feature_fields = {f.name for f in dataclasses.fields(FeatureImportance)}
         features = tuple(
             FeatureImportance(**{k: v for k, v in f.items() if k in feature_fields})
-            for f in data.get("features", [])
+            for f in (data.get("features") or [])
         )
         # v1 → v2 migration: accept legacy ``block_size_days`` key.
         if "block_length_samples" in data:
@@ -351,7 +351,7 @@ class FeatureImportanceArtifact:
             fingerprint=data.get("fingerprint", ""),
             model_type=data.get("model_type", ""),
             timestamp_utc=data.get("timestamp_utc", ""),
-            method_caveats=tuple(data.get("method_caveats", ())),
+            method_caveats=tuple(data.get("method_caveats") or ()),
         )
 
     def save(self, path: Path) -> None:

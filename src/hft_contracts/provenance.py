@@ -295,8 +295,12 @@ class Provenance:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Provenance:
         return cls(
-            git=GitInfo.from_dict(data.get("git", {})),
-            config_hashes=data.get("config_hashes", {}),
+            # `or {}` (not `, {}` default) hardens against a present-but-null
+            # value: data.get("git", {}) returns None when "git": null, then
+            # GitInfo.from_dict(None) crashes. Same null-collection class as
+            # the H-2 ExperimentRecord.from_dict fix (2026-05-28 audit).
+            git=GitInfo.from_dict(data.get("git") or {}),
+            config_hashes=data.get("config_hashes") or {},
             data_dir_hash=data.get("data_dir_hash", ""),
             contract_version=data.get("contract_version", ""),
             timestamp_utc=data.get("timestamp_utc", ""),
