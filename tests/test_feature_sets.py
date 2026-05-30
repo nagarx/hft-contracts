@@ -45,6 +45,22 @@ class TestComputeFeatureSetHash:
         assert len(h1) == 64
         assert all(c in "0123456789abcdef" for c in h1)
 
+    def test_golden_value_pins_cross_repo_contract(self):
+        # TB-4: byte-level golden so a future change to the canonical hashing
+        # algorithm is caught HERE (at the SSoT producer), not only downstream.
+        # cv="3.0" MUST equal the live cross-repo drift golden asserted by
+        # lob-model-trainer/tests/test_feature_set_resolver.py::TestCanonicalHashGolden
+        # — root CLAUDE.md "parallel implementations, edit both / neither" discipline.
+        # cv="2.2" is the documented pre-G.6.D value (root CLAUDE.md).
+        assert (
+            compute_feature_set_hash([0, 5, 12], 98, "3.0")
+            == "1fc8d7f8dee2c9a07617c995ba492b2cb14cb81e1857d8b57fd7cb5f888480d2"
+        )
+        assert (
+            compute_feature_set_hash([0, 5, 12], 98, "2.2")
+            == "96f60276d2768b39292f8798331cf302357c8f0314448dcfb62db46e1783fc28"
+        )
+
     def test_order_and_duplicate_invariant(self):
         h1 = compute_feature_set_hash([12, 0, 5, 5], 98, "2.2")
         h2 = compute_feature_set_hash([0, 5, 12], 98, "2.2")

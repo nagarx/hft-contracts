@@ -57,7 +57,7 @@ cross-module **contract schema version** is tracked independently via
   deferred; the divergence is now pinned by a characterization test that must
   flip to `pytest.raises` when the migration lands.
 
-**Tests (+30)**
+**Tests (+35)**
 
 - `test_canonical_hash.py` +10 — numpy coercion + native-equivalence golden.
 - `test_contract_self_consistency.py` +7 — `LabelContract.is_valid` / `.class_name`,
@@ -71,6 +71,14 @@ cross-module **contract schema version** is tracked independently via
   through `validate_export_contract` (skipif when the data volume is absent).
 - `test_pairwise_compare_artifact.py` +4 (F1) — each of the 4 required collection
   fields, when present-but-null, raises a clean field-named `ValueError`.
+- SSoT golden-locks from the 2026-05-30 re-validation (close pre-existing
+  test-adequacy gaps; hft-rules §6 "golden tests detect accidental contract
+  changes"): `test_label_factory.py` (TB-2) — `peak_return` dominant tests assert
+  the MAGNITUDE (`assert_allclose` 500 / −2000 bps), not just sign;
+  `test_feature_sets.py` +1 (TB-4) — byte-golden pins `compute_feature_set_hash`
+  to the live cross-repo trainer golden (`1fc8d7f8…480d2` @ cv=3.0, `96f60276…fc28`
+  @ cv=2.2); `test_gate_report.py` (NEW) +4 (TB-5) — freezes `GATE_STATUS_VALUES`
+  `{pass,warn,fail,abort}` + `GateReportDict` shape (previously asserted nowhere).
 - `test_test_metrics_ci_artifact.py` +1 — Item-5 bool-divergence characterization.
 
 ### Fixed (from_dict null-collection crash family — 2026-05-29 post-release audit)

@@ -243,7 +243,9 @@ class TestPeakReturn:
         result = LabelFactory.peak_return(fwd, horizon=3, smoothing_window=1)
         # max = 105 → ret = 500 bps, min = 95 → ret = -500 bps
         # |500| >= |-500| → dominant = +500 bps
-        assert result[0] > 0
+        # TB-2: lock the MAGNITUDE (was sign-only); a wrong-base / wrong-column
+        # bug that preserved sign would slip past `> 0`. Value verified 2026-05-30.
+        np.testing.assert_allclose(result[0], 500.0, rtol=1e-12)
 
     def test_selects_negative_dominant(self):
         """|min negative| > max positive → returns negative peak."""
@@ -252,7 +254,7 @@ class TestPeakReturn:
         result = LabelFactory.peak_return(fwd, horizon=3, smoothing_window=1)
         # max = 101 → ret = 100 bps, min = 80 → ret = -2000 bps
         # |-2000| > |100| → dominant = -2000 bps
-        assert result[0] < 0
+        np.testing.assert_allclose(result[0], -2000.0, rtol=1e-12)
 
 
 # ---------------------------------------------------------------------------
