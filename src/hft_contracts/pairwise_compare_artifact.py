@@ -547,19 +547,28 @@ class PairwiseCompareArtifact:
             n_dropped_nonfinite=int(data["n_dropped_nonfinite"]),
             drop_fraction=float(data["drop_fraction"]),
             primary_horizon_idx=int(data["primary_horizon_idx"]),
-            parent_experiment_ids=tuple(data["parent_experiment_ids"]),
+            # `or ()` (audit F1, 2026-05-30): these required K-length collection
+            # fields use bracket-access (KeyError on ABSENT key — correct, they
+            # are required). The `or ()` neutralizes a present-but-null value
+            # that would otherwise crash with a cryptic `tuple(None)` /
+            # `for v in None` TypeError; null coerces to () so the existing
+            # __post_init__ `len(field) != n_treatments` invariant raises a CLEAN
+            # ValueError instead — the same pattern round-2 used for
+            # pairs/method_caveats. (Required SCALAR fields stay strict per the
+            # round-2 "strict on required scalar fields" decision.)
+            parent_experiment_ids=tuple(data["parent_experiment_ids"] or ()),
             parent_compatibility_fingerprints=tuple(
-                data["parent_compatibility_fingerprints"]
+                data["parent_compatibility_fingerprints"] or ()
             ),
             parent_model_config_hashes=tuple(
                 # Optional[str] preserve None values from legacy artifacts
                 None if v is None else str(v)
-                for v in data["parent_model_config_hashes"]
+                for v in (data["parent_model_config_hashes"] or ())
             ),
             paired_compat_fingerprint=data["paired_compat_fingerprint"],
             paired_labels_sha256=data["paired_labels_sha256"],
             pairs=pairs,
-            treatment_labels=tuple(data["treatment_labels"]),
+            treatment_labels=tuple(data["treatment_labels"] or ()),
             timestamp_utc=data["timestamp_utc"],
             method_caveats=tuple(data.get("method_caveats") or ()),
         )

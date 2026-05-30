@@ -27,6 +27,17 @@ cross-module **contract schema version** is tracked independently via
   pre-existing native-input golden hashes are byte-stable (proven — no numpy
   fixture existed before, so the golden suite could not previously have caught
   a numpy regression; now locked).
+- **`PairwiseCompareArtifact.from_dict`** (F1) now coerces the four REQUIRED
+  K-length collection fields (`parent_experiment_ids`,
+  `parent_compatibility_fingerprints`, `parent_model_config_hashes`,
+  `treatment_labels`) with `or ()`, so a present-but-null value raises a CLEAN
+  field-named `ValueError` from the existing `len != n_treatments` invariant
+  instead of a cryptic `tuple(None)` / `for v in None` `TypeError`. Completes the
+  round-2 null-collection family, which had hardened only the `.get()`-default
+  sites (`pairs`, `method_caveats`) and left these bracket-access required
+  fields. DORMANT (zero serialized `PairwiseCompareArtifact` on disk) + fail-loud
+  (never silent corruption). Surfaced by the 2026-05-30 fresh-eye re-validation;
+  required SCALAR fields stay strict per round-2.
 
 **Documented (latent defects — no behavior change)**
 
@@ -46,7 +57,7 @@ cross-module **contract schema version** is tracked independently via
   deferred; the divergence is now pinned by a characterization test that must
   flip to `pytest.raises` when the migration lands.
 
-**Tests (+26)**
+**Tests (+30)**
 
 - `test_canonical_hash.py` +10 — numpy coercion + native-equivalence golden.
 - `test_contract_self_consistency.py` +7 — `LabelContract.is_valid` / `.class_name`,
@@ -58,6 +69,8 @@ cross-module **contract schema version** is tracked independently via
   synthetic NPY fixtures under `tmp_path` only).
 - `test_export_contract_real_corpus.py` (NEW) +1 — real v3p0 `*_metadata.json`
   through `validate_export_contract` (skipif when the data volume is absent).
+- `test_pairwise_compare_artifact.py` +4 (F1) — each of the 4 required collection
+  fields, when present-but-null, raises a clean field-named `ValueError`.
 - `test_test_metrics_ci_artifact.py` +1 — Item-5 bool-divergence characterization.
 
 ### Fixed (from_dict null-collection crash family — 2026-05-29 post-release audit)

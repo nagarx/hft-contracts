@@ -491,3 +491,27 @@ class TestFromDictNullHardening:
         d["pairs"] = None
         with pytest.raises(ValueError):
             PairwiseCompareArtifact.from_dict(d)
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "parent_experiment_ids",
+            "parent_compatibility_fingerprints",
+            "parent_model_config_hashes",
+            "treatment_labels",
+        ],
+    )
+    def test_required_collection_null_raises_clean_valueerror(self, field):
+        # Audit F1 (2026-05-30 re-validation): the 4 REQUIRED K-length collection
+        # fields use bracket-access in from_dict. A present-but-null value would
+        # crash with a cryptic `tuple(None)` / `for v in None` TypeError. The
+        # `or ()` coercion turns null into () so the existing __post_init__
+        # `len(field) != n_treatments` invariant raises a CLEAN ValueError that
+        # NAMES the offending field. Round-2 hardened only the `.get()`-default
+        # collection sites (pairs/method_caveats) and left these four required
+        # bracket-access fields — they were the remaining null-collection
+        # family members.
+        d = _make_k3_artifact().to_dict()
+        d[field] = None
+        with pytest.raises(ValueError, match=field):
+            PairwiseCompareArtifact.from_dict(d)
