@@ -53,8 +53,9 @@ unchanged — non-finite floats serialize to the non-strict-JSON tokens ``NaN``
 / ``Infinity`` (which are deterministic across CPython but reject-on-load in
 strict consumers). Pass ``sanitize=True`` to preprocess the input with
 ``sanitize_for_hash``, which recursively replaces non-finite floats with
-``None``. Use sanitization when the hashed payload carries statistical metrics
-that legitimately have NaN-as-missing semantics (e.g., evaluator
+``None`` and coerces numpy scalars/arrays to native Python types. Use
+sanitization when the hashed payload carries statistical metrics that
+legitimately have NaN-as-missing semantics (e.g., evaluator
 ``FeatureProfile`` p-values for paths without hypothesis tests).
 
 See ``tests/test_canonical_hash.py`` for the byte-level golden-hash fixtures
@@ -68,6 +69,8 @@ import json
 import math
 from typing import Any
 
+import numpy as np
+
 __all__ = [
     "canonical_json_blob",
     "sanitize_for_hash",
@@ -76,19 +79,39 @@ __all__ = [
 
 
 def sanitize_for_hash(obj: Any) -> Any:
-    """Recursively replace non-finite floats with None for strict-JSON safety.
+    """Recursively coerce to canonical, strict-JSON-safe native types.
 
     Walks dicts (recurse into values), lists and tuples (recurse into items,
     tuples canonicalize to lists — JSON-identical), and floats (NaN/Inf/-Inf
-    → None). All other types pass through unchanged.
+    → None). NumPy scalars and arrays are coerced to their native Python
+    equivalents (``np.generic`` → ``.item()``, ``np.ndarray`` → ``.tolist()``)
+    before any other handling, then re-walked. All remaining types pass
+    through unchanged.
 
-    Rationale: NaN ≠ NaN by IEEE 754. ``json.dumps`` emits the non-strict
-    tokens ``NaN`` / ``Infinity`` which ARE deterministic across Python
-    versions, but round-tripping through a strict-JSON consumer (e.g., a
-    different language reading the hash input) would reject them. Mapping
-    non-finite floats to ``None`` keeps canonical form strictly-JSON-safe
-    AND semantically correct in the common case (NaN p-value = "no
-    hypothesis test run", i.e., absent information).
+    Rationale (non-finite floats): NaN ≠ NaN by IEEE 754. ``json.dumps``
+    emits the non-strict tokens ``NaN`` / ``Infinity`` which ARE deterministic
+    across Python versions, but round-tripping through a strict-JSON consumer
+    (e.g., a different language reading the hash input) would reject them.
+    Mapping non-finite floats to ``None`` keeps canonical form
+    strictly-JSON-safe AND semantically correct in the common case (NaN
+    p-value = "no hypothesis test run", i.e., absent information).
+
+    Rationale (numpy coercion): a numpy scalar reaching ``json.dumps`` would
+    fall through to the ``default=str`` fallback and serialize to its ``str``
+    repr — e.g. ``np.int64(5)`` → ``'"5"'`` (a JSON *string*), NOT ``5`` — so
+    a numpy value would produce a DIFFERENT, wrong hash than the native value
+    every producer already passes after ``float()``/``int()`` boundary
+    wrapping. Coercing here makes numpy inputs hash IDENTICALLY to the native
+    form. The hash-changing types are ``np.int64`` / ``np.bool_`` /
+    ``np.ndarray`` — non-``float`` types the ``float`` branch skips, which
+    would otherwise reach ``default=str``. The numpy branches run before the
+    ``float`` branch so that ``np.float64`` (a ``float`` subclass) is uniformly
+    coerced to native too and routed through the NaN/Inf guard below; note
+    ``np.float64`` already serializes to a correct number either way, so this
+    ordering is for output uniformity, not hash-correctness. NOTE: this hardens
+    only the ``sanitize=True`` path; the default ``sanitize=False`` path is
+    unchanged and leaves boundary-coercion to the caller (FeatureSet / dedup /
+    cache sites already wrap with ``int()``/``str()``).
 
     Tuples are canonicalized to lists because JSON has no tuple type; a
     tuple of the same contents always serializes identically to a list
@@ -96,13 +119,19 @@ def sanitize_for_hash(obj: Any) -> Any:
     matches JSON-serialized behavior.
 
     Args:
-        obj: Any value. Dicts/lists/tuples are recursed; floats are
-            checked with ``math.isfinite``; other types pass through.
+        obj: Any value. NumPy scalars/arrays are coerced to native Python
+            first; dicts/lists/tuples are recursed; floats are checked with
+            ``math.isfinite``; other types pass through.
 
     Returns:
-        Same structure with non-finite floats replaced by None and
-        tuples replaced by lists. All other values preserved.
+        Same structure with numpy types coerced to native, non-finite floats
+        replaced by None, and tuples replaced by lists. All other values
+        preserved.
     """
+    if isinstance(obj, np.ndarray):
+        return sanitize_for_hash(obj.tolist())
+    if isinstance(obj, np.generic):
+        return sanitize_for_hash(obj.item())
     if isinstance(obj, float):
         return obj if math.isfinite(obj) else None
     if isinstance(obj, dict):

@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 
+import numpy as np
 import pytest
 
 from hft_contracts.canonical_hash import (
@@ -159,6 +160,91 @@ class TestSanitizeForHash:
 
     def test_tuple_with_nan_becomes_list_with_none(self):
         assert sanitize_for_hash((float("nan"), 1)) == [None, 1]
+
+
+# ---------------------------------------------------------------------------
+# NumPy coercion (M-3)
+#
+# A numpy scalar reaching json.dumps(default=str) serializes to its str repr
+# (np.int64(5) → '"5"', a JSON *string*) — a DIFFERENT, wrong hash than the
+# native value (5 → '5'). sanitize_for_hash coerces numpy → native so a numpy
+# payload hashes IDENTICALLY to the native form producers already pass after
+# float()/int() boundary wrapping. Hardens only the sanitize=True path.
+# ---------------------------------------------------------------------------
+
+
+class TestNumpyCoercion:
+    """numpy scalars/arrays must hash IDENTICALLY to their native equivalents."""
+
+    # Golden for the feature-set-style payload
+    # {"indices":[0,5,12],"source_feature_count":98,"contract_version":"3.0"}.
+    # Native AND numpy forms MUST both produce this (and it must equal the
+    # default sanitize=False native hash — no floats need sanitizing).
+    _GOLDEN = "fa2b72e14d88b70d1785ff2b6747c039fd2f7ed6d85d14d7e021c118f87ea610"
+
+    def test_numpy_int_scalar_to_native(self):
+        out = sanitize_for_hash(np.int64(5))
+        assert out == 5
+        assert type(out) is int
+
+    def test_numpy_float_scalar_to_native(self):
+        out = sanitize_for_hash(np.float64(1.5))
+        assert out == 1.5
+        assert type(out) is float
+
+    def test_numpy_float_nan_to_none(self):
+        # np.float64 IS-A float, but the numpy branch runs first then routes
+        # the coerced native float through the NaN/Inf guard → None.
+        assert sanitize_for_hash(np.float64("nan")) is None
+        assert sanitize_for_hash(np.float64("inf")) is None
+        assert sanitize_for_hash(np.float64("-inf")) is None
+
+    def test_numpy_bool_to_native(self):
+        assert sanitize_for_hash(np.bool_(True)) is True
+        assert sanitize_for_hash(np.bool_(False)) is False
+
+    def test_numpy_array_to_list(self):
+        out = sanitize_for_hash(np.array([1, 2, 3]))
+        assert out == [1, 2, 3]
+        assert all(type(x) is int for x in out)
+
+    def test_numpy_2d_array_to_nested_list(self):
+        assert sanitize_for_hash(np.array([[1, 2], [3, 4]])) == [[1, 2], [3, 4]]
+
+    def test_numpy_array_nan_in_dict_to_null(self):
+        # ndarray → tolist() (float nan) → recurse → float branch → None.
+        blob = canonical_json_blob({"v": np.array([1.0, np.nan])}, sanitize=True)
+        assert b"null" in blob
+        assert b"NaN" not in blob
+
+    def test_numpy_dict_values_hash_identically_to_native(self):
+        native = {"indices": [0, 5, 12], "source_feature_count": 98, "contract_version": "3.0"}
+        numpyish = {
+            "indices": [np.int64(0), np.int64(5), np.int64(12)],
+            "source_feature_count": np.int64(98),
+            "contract_version": "3.0",
+        }
+        assert sha256_hex(canonical_json_blob(numpyish, sanitize=True)) == sha256_hex(
+            canonical_json_blob(native, sanitize=True)
+        )
+
+    def test_numpy_feature_set_payload_golden(self):
+        # Locks the exact hash so a future regression in coercion is caught.
+        native = {"indices": [0, 5, 12], "source_feature_count": 98, "contract_version": "3.0"}
+        numpyish = {
+            "indices": [np.int64(0), np.int64(5), np.int64(12)],
+            "source_feature_count": np.int64(98),
+            "contract_version": "3.0",
+        }
+        assert sha256_hex(canonical_json_blob(native, sanitize=True)) == self._GOLDEN
+        assert sha256_hex(canonical_json_blob(numpyish, sanitize=True)) == self._GOLDEN
+        # Default (sanitize=False) native matches too — no floats to sanitize.
+        assert sha256_hex(canonical_json_blob(native)) == self._GOLDEN
+
+    def test_numpy_array_in_dict_hashes_like_native_list(self):
+        assert canonical_json_blob({"v": np.array([1, 2])}, sanitize=True) == canonical_json_blob(
+            {"v": [1, 2]}, sanitize=True
+        )
 
 
 # ---------------------------------------------------------------------------
