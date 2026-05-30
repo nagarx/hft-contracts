@@ -12,6 +12,10 @@ Validation hierarchy:
     validate_metadata_completeness() — all required fields present
     validate_label_encoding()       — label strategy matches contract
     validate_provenance_present()   — provenance block is present
+    validate_day_metadata()         — per-day export check (wraps the contract)
+    validate_export_dir()           — directory-level manifest<->disk + cross-day
+                                       schema/commit uniformity (composes
+                                       validate_day_metadata; 2026-05-29)
     assert_finite_array()           — fail-loud on NaN/Inf in numpy arrays
                                        (#PY-63 SSoT extraction 2026-05-07)
 """
@@ -504,6 +508,330 @@ def validate_day_metadata(metadata: dict | None, date: str) -> list[str]:
         raise ContractError(
             f"Export contract violation for {date}: {exc}"
         ) from exc
+
+    return warnings
+
+
+def validate_export_dir(export_dir, *, strict: bool = True) -> list[str]:
+    """Directory-level export-integrity validator for MBO NPY exports.
+
+    Composes the per-day :func:`validate_day_metadata` SSoT across an entire
+    export directory and adds the cross-day + manifest<->disk reconciliation
+    that a per-day metadata validator structurally cannot see (its
+    "metadata-only gap"):
+
+      1. Every ``{split}/{day}_metadata.json`` passes ``validate_day_metadata``.
+      2. Every ``*_sequences.npy`` has a matching ``*_metadata.json`` (and v.v.).
+      3. Cross-day **uniform** ``schema_version`` == ``manifest.schema_version``
+         (catches a re-export layered over an old one — e.g. mixed day-files
+         ``{"2.2", "3.0"}``).
+      4. Cross-day **single** producer ``provenance.git_commit`` (catches a
+         partial re-export under a different commit — e.g. ``{b5e746d, c5e9d64}``).
+      5. Per-split + total on-disk ``*_sequences.npy`` count reconciles with the
+         manifest's attempted-day accounting *minus* recorded failures:
+         ``#files[split] == manifest.split[split].days
+         − #failed_partitions[split] − #skipped_days[split]`` (and the total
+         ``#files == days_processed − #failed − #skipped``). Catches BOTH
+         missing days (silent truncation) AND **extra** stale day-files left
+         behind by a re-export layered over an old export.
+      6. Split day-sets are disjoint (no day appears in two splits — leakage).
+
+    **What this deliberately does NOT assert** (CF-1, ground-truth 2026-05-29):
+    the manifest's ``total_sequences`` is the **pre-alignment** generated count
+    (``output.total_sequences()`` = ``sequences_generated()`` in the extractor),
+    whereas the per-day ``n_sequences`` and the on-disk NPY rows are the
+    **post-alignment** emitted count. They differ by construction (the label
+    ``2*k + max_h + 1`` alignment trim), so ``total_sequences`` is NOT compared
+    to the on-disk sum — doing so would false-positive on every healthy export
+    (e.g. the v3p0 export legitimately has ``total_sequences=136902`` vs
+    ~66182 on disk). The honest disk-truth field ``total_sequences_emitted``
+    (added separately by the manifest writer) IS reconciled here when present
+    (forward-compatible — skipped if absent). (A parallel ``days_emitted`` field
+    was deliberately NOT added — redundant: emitted-day count is already
+    reconciled via ``days_processed − failed − skipped`` vs the on-disk
+    ``*_sequences.npy`` count, and equals ``len(diagnostics_files)``. Ground-truth
+    verdict 2026-05-29.)
+
+    Reuses :func:`validate_day_metadata` per day (the per-day SSoT) — no
+    duplicated per-day contract logic. Remains log-free (returns warnings; the
+    caller logs) per the module invariant. **MBO exports only.** Off-exchange
+    exports DO carry a ``dataset_manifest.json`` (ground-truth 2026-05-30:
+    ``data/exports/basic_nvda_60s``), but use the off-exchange contract
+    (``schema_version`` 1.0 / ``contract_version`` ``off_exchange_*``); this
+    validator fail-fast rejects them with a single clear pointer to
+    :func:`validate_off_exchange_export_contract` /
+    :func:`validate_any_export_contract` rather than emitting a wall of
+    spurious per-day ``schema_version`` mismatches.
+
+    Args:
+        export_dir: Path to an MBO export directory containing
+            ``dataset_manifest.json`` and ``{train,val,test}/`` split subdirs.
+        strict: If True (default — fail-loud per hft-rules §8), any HARD
+            integrity violation raises ``ContractError`` aggregating ALL
+            detected hard violations. If False, hard violations are returned in
+            the result list prefixed ``"ERROR: "`` (for audit/CLI that wants the
+            full picture without raising).
+
+    Returns:
+        List of non-fatal warnings (per-day provenance gaps, optional-field
+        absences, non-attributable skipped-day notes). When ``strict=False``,
+        ``"ERROR: "``-prefixed hard violations are prepended.
+
+    Raises:
+        FileNotFoundError: If ``export_dir`` does not exist.
+        ContractError: If ``strict=True`` and any hard integrity violation is
+            found (or the manifest is missing/unparseable, regardless of
+            ``strict`` for the missing/unparseable case under ``strict=True``;
+            under ``strict=False`` those return an ``"ERROR: "`` entry).
+
+    Origin: Foundation Integrity cluster (2026-05-29) — closes the
+    manifest<->disk + cross-day-uniformity gap that allowed a polluted export
+    directory (mixed ``schema_version`` + producer commit, manifest counts
+    disagreeing with disk) to pass the per-day validators undetected.
+    """
+    import json
+    from pathlib import Path
+
+    export_dir = Path(export_dir)
+    if not export_dir.exists():
+        raise FileNotFoundError(
+            f"validate_export_dir: export directory not found: {export_dir}"
+        )
+    if not export_dir.is_dir():
+        raise ContractError(f"validate_export_dir: not a directory: {export_dir}")
+
+    # -- Manifest (required for MBO exports) — structural precondition --
+    manifest_path = export_dir / "dataset_manifest.json"
+    if not manifest_path.exists():
+        msg = (
+            f"missing dataset_manifest.json in {export_dir} — an MBO export "
+            f"directory must carry a manifest."
+        )
+        if strict:
+            raise ContractError(f"validate_export_dir: {msg}")
+        return [f"ERROR: {msg}"]
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (ValueError, OSError) as exc:
+        msg = f"dataset_manifest.json unparseable ({manifest_path}): {exc}"
+        if strict:
+            raise ContractError(f"validate_export_dir: {msg}") from exc
+        return [f"ERROR: {msg}"]
+
+    # -- Off-exchange precondition (this is the MBO directory validator). --
+    # Off-exchange exports DO carry a manifest (ground-truth 2026-05-30:
+    # basic_nvda_60s carries contract_version="off_exchange_1.0"), but use the
+    # off_exchange_* contract (schema_version 1.0). Applying the MBO per-day
+    # contract to them would emit a wall of spurious per-day schema_version
+    # mismatches; fail-fast with a single clear pointer instead. Discriminator
+    # mirrors validate_any_export_contract's cv.startswith("off_exchange").
+    # Mirrors the missing/unparseable manifest preconditions above (strict
+    # raises; non-strict returns one "ERROR: " entry).
+    manifest_cv = str(manifest.get("contract_version") or "")
+    if manifest_cv.startswith("off_exchange"):
+        msg = (
+            f"{export_dir} is an off-exchange export "
+            f"(contract_version={manifest_cv!r}); validate_export_dir applies the "
+            f"MBO export contract — use validate_off_exchange_export_contract "
+            f"(per-day) or validate_any_export_contract (auto-routing) instead."
+        )
+        if strict:
+            raise ContractError(f"validate_export_dir: {msg}")
+        return [f"ERROR: {msg}"]
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    manifest_schema = manifest.get("schema_version")
+    manifest_schema = None if manifest_schema is None else str(manifest_schema)
+
+    # The writer emits "split" (singular); the contract field list says
+    # "splits" — tolerate both (split-vs-splits discrepancy, 2026-05-29).
+    split_block = manifest.get("split")
+    if not isinstance(split_block, dict):
+        split_block = manifest.get("splits")
+    if not isinstance(split_block, dict):
+        split_block = {}
+
+    # Failed-partition accounting: partial_failure.failed_partitions[].
+    # partition_key.{day,split}. These days were attempted but NOT emitted.
+    pf = manifest.get("partial_failure")
+    failed_partitions = pf.get("failed_partitions", []) if isinstance(pf, dict) else []
+    failed_by_split: dict[str, set] = {}
+    failed_total = 0
+    for fp in failed_partitions:
+        if not isinstance(fp, dict):
+            continue
+        failed_total += 1
+        pk = fp.get("partition_key", {})
+        if isinstance(pk, dict) and pk.get("split") is not None:
+            failed_by_split.setdefault(str(pk["split"]), set()).add(str(pk.get("day")))
+
+    # Skipped-days accounting: may be an int count or a list of {day,split}.
+    skipped_raw = manifest.get("skipped_days", 0)
+    skipped_by_split: dict[str, set] = {}
+    skipped_total = 0
+    skipped_attributable = True
+    if isinstance(skipped_raw, bool):
+        pass  # ignore stray bool
+    elif isinstance(skipped_raw, int):
+        skipped_total = skipped_raw
+        if skipped_raw > 0:
+            skipped_attributable = False  # int count → no per-split breakdown
+    elif isinstance(skipped_raw, list):
+        for sk in skipped_raw:
+            skipped_total += 1
+            if isinstance(sk, dict) and sk.get("split") is not None:
+                skipped_by_split.setdefault(str(sk["split"]), set()).add(
+                    str(sk.get("day"))
+                )
+            else:
+                skipped_attributable = False
+
+    # -- Walk split subdirs --
+    SPLITS = ("train", "val", "test")
+    present_splits = [s for s in SPLITS if (export_dir / s).is_dir()]
+    if not present_splits:
+        msg = f"no train/val/test split subdirs found in {export_dir}."
+        if strict:
+            raise ContractError(f"validate_export_dir: {msg}")
+        return [f"ERROR: {msg}"]
+
+    all_schema_versions: set = set()
+    all_commits: set = set()
+    day_to_splits: dict[str, set] = {}
+    total_disk_files = 0
+    total_n_sequences = 0  # Σ per-day n_sequences (post-align == on-disk rows)
+
+    for split in present_splits:
+        split_dir = export_dir / split
+        seq_files = sorted(split_dir.glob("*_sequences.npy"))
+        meta_files = sorted(split_dir.glob("*_metadata.json"))
+        seq_days = {f.name[: -len("_sequences.npy")] for f in seq_files}
+        meta_days = {f.name[: -len("_metadata.json")] for f in meta_files}
+
+        # (2) pairing
+        for d in sorted(seq_days - meta_days):
+            errors.append(
+                f"{split}/{d}: *_sequences.npy without matching *_metadata.json"
+            )
+        for d in sorted(meta_days - seq_days):
+            errors.append(
+                f"{split}/{d}: *_metadata.json without matching *_sequences.npy"
+            )
+
+        n_disk = len(seq_days)
+        total_disk_files += n_disk
+
+        # per-day contract + collect cross-day uniformity inputs
+        for mf in meta_files:
+            day = mf.name[: -len("_metadata.json")]
+            day_to_splits.setdefault(day, set()).add(split)
+            try:
+                meta = json.loads(mf.read_text())
+            except (ValueError, OSError) as exc:
+                errors.append(f"{split}/{day}: metadata unparseable: {exc}")
+                continue
+            try:
+                day_warnings = validate_day_metadata(meta, f"{split}/{day}")
+            except ContractError as exc:
+                errors.append(str(exc))
+            else:
+                warnings.extend(f"({split}/{day}) {w}" for w in day_warnings)
+            sv = meta.get("schema_version")
+            if sv is not None:
+                all_schema_versions.add(str(sv))
+            prov = meta.get("provenance")
+            if isinstance(prov, dict) and prov.get("git_commit") is not None:
+                all_commits.add(str(prov["git_commit"]))
+            ns = meta.get("n_sequences")
+            if isinstance(ns, int) and not isinstance(ns, bool):
+                total_n_sequences += ns
+
+        # (5) per-split count reconciliation
+        claimed = split_block.get(split)
+        claimed_days = claimed.get("days") if isinstance(claimed, dict) else None
+        if isinstance(claimed_days, int) and not isinstance(claimed_days, bool):
+            failed_here = len(failed_by_split.get(split, set()))
+            if skipped_attributable:
+                skipped_here = len(skipped_by_split.get(split, set()))
+                expected = claimed_days - failed_here - skipped_here
+                if n_disk != expected:
+                    errors.append(
+                        f"{split}: on-disk *_sequences.npy count {n_disk} != "
+                        f"manifest.split.{split}.days {claimed_days} "
+                        f"− {failed_here} failed − {skipped_here} skipped "
+                        f"= {expected} (manifest disagrees with disk: silent "
+                        f"truncation or stale re-export leftover)."
+                    )
+            else:
+                warnings.append(
+                    f"{split}: per-split count check skipped — skipped_days is a "
+                    f"non-attributable count ({skipped_total}); relying on the "
+                    f"total reconciliation."
+                )
+
+    # (3) cross-day schema_version uniformity
+    if len(all_schema_versions) > 1:
+        errors.append(
+            f"Mixed schema_version across day-files: {sorted(all_schema_versions)} "
+            f"— a single export directory must be uniform (a partial re-export "
+            f"was layered over an older export)."
+        )
+    elif all_schema_versions and manifest_schema is not None:
+        only = next(iter(all_schema_versions))
+        if only != manifest_schema:
+            errors.append(
+                f"Day-file schema_version {only!r} != manifest.schema_version "
+                f"{manifest_schema!r}."
+            )
+
+    # (4) cross-day producer-commit uniformity
+    if len(all_commits) > 1:
+        errors.append(
+            f"Mixed producer git_commit across day-files: {sorted(all_commits)} "
+            f"— a single export directory must come from one producer commit "
+            f"(a partial re-export under a different commit was detected)."
+        )
+
+    # (5-total) total count reconciliation
+    days_processed = manifest.get("days_processed")
+    if isinstance(days_processed, int) and not isinstance(days_processed, bool):
+        expected_total = days_processed - failed_total - skipped_total
+        if total_disk_files != expected_total:
+            errors.append(
+                f"Total on-disk *_sequences.npy count {total_disk_files} != "
+                f"manifest.days_processed {days_processed} − {failed_total} "
+                f"failed − {skipped_total} skipped = {expected_total}."
+            )
+
+    # (6) split disjointness
+    for day, splits_for_day in sorted(day_to_splits.items()):
+        if len(splits_for_day) > 1:
+            errors.append(
+                f"Day {day} appears in multiple splits "
+                f"{sorted(splits_for_day)} — split day-sets must be disjoint "
+                f"(leakage risk)."
+            )
+
+    # (forward-compat) honest disk-truth sequence total, when the writer emits it.
+    # No ``days_emitted`` check: emitted-day count is already reconciled above via
+    # ``days_processed − failed − skipped`` vs the on-disk file count (and equals
+    # ``len(diagnostics_files)``) — a separate scalar would be redundant.
+    tse = manifest.get("total_sequences_emitted")
+    if isinstance(tse, int) and not isinstance(tse, bool) and tse != total_n_sequences:
+        errors.append(
+            f"manifest.total_sequences_emitted {tse} != Σ per-day n_sequences "
+            f"{total_n_sequences} (post-alignment on-disk truth)."
+        )
+
+    if errors:
+        if strict:
+            raise ContractError(
+                f"Export directory integrity violations in {export_dir}:\n- "
+                + "\n- ".join(errors)
+            )
+        warnings = [f"ERROR: {e}" for e in errors] + warnings
 
     return warnings
 

@@ -288,3 +288,61 @@ class TestBuildProvenance:
                 trainer_config_dict={"model": {"model_type": "tlob"}},
                 contract_version="2.2",
             )
+
+
+class TestProvenanceProducerCommits:
+    """P1a (2026-05-30, finding A-PROV): ``producer_commits`` is an additive,
+    record-level OBSERVATION field — empty default (back-compat), round-trips,
+    null-safe, and passes through ``build_provenance``. It is deliberately NOT
+    part of the dedup fingerprint (asserted at the hft-ops layer)."""
+
+    def test_default_producer_commits_empty(self):
+        assert Provenance().producer_commits == {}
+
+    def test_to_dict_includes_producer_commits(self):
+        d = Provenance(producer_commits={"reconstructor_git_sha": "abc"}).to_dict()
+        assert d["producer_commits"] == {"reconstructor_git_sha": "abc"}
+
+    def test_producer_commits_roundtrip(self):
+        prov = Provenance(
+            producer_commits={
+                "reconstructor_git_sha": "2b74523",
+                "extractor_git_sha": "e43bff0",
+                "reconstructor_source": "path-override@2b74523+dirty",
+                "completeness": "partial",
+            },
+        )
+        restored = Provenance.from_dict(prov.to_dict())
+        assert restored.producer_commits["reconstructor_git_sha"] == "2b74523"
+        assert (
+            restored.producer_commits["reconstructor_source"]
+            == "path-override@2b74523+dirty"
+        )
+        assert restored.producer_commits["completeness"] == "partial"
+
+    def test_old_records_default_producer_commits_empty(self):
+        """Pre-2026-05-30 records lack the key → default to {} (back-compat)."""
+        restored = Provenance.from_dict({
+            "git": {"commit_hash": "abc", "branch": "main"},
+            "config_hashes": {},
+            "contract_version": "2.2",
+            "timestamp_utc": "2026-03-01T00:00:00+00:00",
+        })
+        assert restored.producer_commits == {}
+
+    def test_present_but_null_producer_commits_defaults_empty(self):
+        """``producer_commits: null`` must not crash — ``or {}`` hardening
+        (same null-collection class as the H-2 git/config_hashes fix)."""
+        restored = Provenance.from_dict({"producer_commits": None})
+        assert restored.producer_commits == {}
+
+    def test_build_provenance_passthrough(self, tmp_path: Path):
+        commits = {"reconstructor_git_sha": "2b74523", "completeness": "full"}
+        prov = build_provenance(
+            tmp_path, contract_version="3.0", producer_commits=commits
+        )
+        assert prov.producer_commits == commits
+
+    def test_build_provenance_default_empty(self, tmp_path: Path):
+        prov = build_provenance(tmp_path, contract_version="3.0")
+        assert prov.producer_commits == {}

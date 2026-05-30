@@ -262,6 +262,22 @@ class Provenance:
     Attributes:
         git: Git state at experiment time.
         config_hashes: {"extractor": sha256, "trainer": sha256, "manifest": sha256}.
+        producer_commits: Producer-code provenance for the Rust binaries that built
+            the exported data — e.g. {"reconstructor_git_sha": ..., "extractor_git_sha":
+            ..., "hft_statistics_git_sha": ..., "reconstructor_source":
+            "path-override@<head>+<clean|dirty|unknown>" | "git-pin", "completeness":
+            "full"|"partial"}. NOTE: in ``git-pin`` mode ``reconstructor_git_sha`` is
+            ``"unresolved"`` (NOT the local-checkout HEAD): the build uses the Cargo.toml
+            git pin, so the local HEAD is not the built commit — reporting it would be
+            silently-wrong lineage; ``completeness`` is ``"partial"`` in git-pin mode.
+            Closes finding A-PROV: the path-override Rust deps (reconstructor,
+            hft_statistics) are captured by NEITHER ``git`` (monorepo root is not a git
+            repo → NOT_GIT_TRACKED_SENTINEL) NOR the NPY metadata (extractor commit only).
+            Populated best-effort/GRACEFUL by the hft-ops ``resolve_build_provenance``
+            helper; empty ``{}`` when unavailable (direct-trainer path, or the resolver
+            could not run). Record-level OBSERVATION — deliberately NOT part of the dedup
+            fingerprint (``compute_fingerprint`` is over the config, never Provenance).
+            Added 2026-05-30 (P1a); additive/non-breaking → no PROVENANCE_SCHEMA_VERSION bump.
         data_dir_hash: SHA-256 of sorted (filename, size) pairs.
         contract_version: Contract schema version string.
         timestamp_utc: Experiment start time in ISO-8601 UTC.
@@ -275,6 +291,7 @@ class Provenance:
 
     git: GitInfo = field(default_factory=GitInfo)
     config_hashes: Dict[str, str] = field(default_factory=dict)
+    producer_commits: Dict[str, str] = field(default_factory=dict)
     data_dir_hash: str = ""
     contract_version: str = ""
     timestamp_utc: str = ""
@@ -285,6 +302,7 @@ class Provenance:
         return {
             "git": self.git.to_dict(),
             "config_hashes": self.config_hashes,
+            "producer_commits": self.producer_commits,
             "data_dir_hash": self.data_dir_hash,
             "contract_version": self.contract_version,
             "timestamp_utc": self.timestamp_utc,
@@ -301,6 +319,9 @@ class Provenance:
             # the H-2 ExperimentRecord.from_dict fix (2026-05-28 audit).
             git=GitInfo.from_dict(data.get("git") or {}),
             config_hashes=data.get("config_hashes") or {},
+            # `or {}` mirrors config_hashes — hardens against present-but-null +
+            # defaults empty for pre-2026-05-30 records that lack the field.
+            producer_commits=data.get("producer_commits") or {},
             data_dir_hash=data.get("data_dir_hash", ""),
             contract_version=data.get("contract_version", ""),
             timestamp_utc=data.get("timestamp_utc", ""),
@@ -318,6 +339,7 @@ def build_provenance(
     trainer_config_dict: Optional[Dict[str, Any]] = None,
     data_dir: Optional[Path] = None,
     contract_version: str = "",
+    producer_commits: Optional[Dict[str, str]] = None,
 ) -> Provenance:
     """Build a complete provenance record.
 
@@ -337,6 +359,12 @@ def build_provenance(
             `build_provenance`).
         data_dir: Path to the data export directory.
         contract_version: Contract schema version string.
+        producer_commits: Optional pre-resolved producer-code provenance dict
+            (reconstructor/extractor/hft_statistics git shas + source marker),
+            computed by the hft-ops ``resolve_build_provenance`` helper and passed
+            through. This module stays git-logic-free for the path-override deps
+            (hft-contracts has no knowledge of the Rust crate dirs). Defaults to
+            ``{}`` (graceful — direct-trainer path or unavailable).
 
     Returns:
         Provenance with all captured information.
@@ -378,6 +406,7 @@ def build_provenance(
     return Provenance(
         git=git,
         config_hashes=config_hashes,
+        producer_commits=producer_commits or {},
         data_dir_hash=data_hash,
         contract_version=contract_version,
         timestamp_utc=now,

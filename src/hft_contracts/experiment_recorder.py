@@ -287,6 +287,7 @@ def record_from_artifacts(
     trainer_config_path: Optional[Path] = None,
     trainer_config_dict: Optional[Dict[str, Any]] = None,
     data_dir: Optional[Path] = None,
+    producer_commits: Optional[Dict[str, str]] = None,
     # Orchestrator-only fields (None for direct-trainer path)
     gate_reports: Optional[Dict[str, Dict[str, Any]]] = None,
     cache_info: Optional[Dict[str, Any]] = None,
@@ -347,6 +348,10 @@ def record_from_artifacts(
             :func:`build_provenance`. Mutually exclusive: caller supplies
             EITHER ``trainer_config_path`` (legacy wrapper) OR
             ``trainer_config_dict`` (Phase 1 inline pattern), not both.
+        producer_commits: Optional producer-code provenance dict (P1a, finding
+            A-PROV) from the hft-ops ``resolve_build_provenance`` helper; passed
+            through to :func:`build_provenance`. ``None``/``{}`` on the
+            direct-trainer path (graceful — the record simply omits it).
         gate_reports: Orchestrator-only — stage-name → gate report dict.
             Defaults to empty for direct-trainer path.
         cache_info: Orchestrator-only — extraction cache observability.
@@ -436,6 +441,7 @@ def record_from_artifacts(
         trainer_config_dict=trainer_config_dict,
         data_dir=data_dir,
         contract_version=contract_version,
+        producer_commits=producer_commits,
     )
 
     # Harvest trust columns from one of two sources (or default empty).
