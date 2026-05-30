@@ -11,6 +11,34 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+### Added
+
+- **`validate_export_dir(export_dir, *, strict=True) -> list[str]`** (Foundation
+  Integrity C1, 2026-05-30) — NEW public directory-level export-integrity validator,
+  exported in `__all__`. Composes the per-day `validate_day_metadata` SSoT across a
+  whole export directory and adds the reconciliation a per-day validator cannot see:
+  cross-day `schema_version` + producer `git_commit` uniformity, manifest↔disk count
+  reconciliation (via `partial_failure` + `skipped_days`; the pre-alignment
+  `total_sequences` is deliberately NOT compared, per CF-1 — it differs from the
+  on-disk post-alignment row sum by design), split-day disjointness, and per-day
+  `*_sequences.npy`↔`*_metadata.json` pairing. `strict=True` raises `ContractError`
+  aggregating all violations; `strict=False` returns an `ERROR:`-prefixed list.
+  Off-exchange directories fail CLEAR with a single pointer to
+  `validate_off_exchange_export_contract` (no per-day MBO-schema wall). Consumed by
+  hft-ops `validate_manifest` preflight.
+- **`Provenance.producer_commits: Dict[str, str]`** (Foundation Integrity P1a,
+  2026-05-30) — NEW record-level OBSERVATION field on `Provenance` capturing the
+  producer-code git lineage of an export (`extractor_git_sha` /
+  `reconstructor_git_sha` / `hft_statistics_git_sha` + `reconstructor_source` +
+  `completeness`). Populated fail-open at extraction time by the hft-ops resolver;
+  deliberately EXCLUDED from the dedup fingerprint (an observation, not a treatment);
+  default `{}` with `from_dict` back-compat for pre-field records. Passthrough in
+  `build_provenance` + `experiment_recorder.record_from_artifacts`.
+
+> Both additions are additive PUBLIC API → a MINOR-grade bump. The `__version__` /
+> `pyproject.toml` stamp to **2.9.0** is deferred to the coordinated release (see the
+> `### Notes` block below); these entries accrue here under `[Unreleased]` until that cut.
+
 ### Audit round 3 — hash robustness + coverage close-out (2026-05-30)
 
 **Hardened**
