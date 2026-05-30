@@ -364,6 +364,74 @@ class TestLabelContracts:
         assert is_regression_strategy("tlob") is False
         assert is_regression_strategy("triple_barrier") is False
 
+    def test_point_return_is_not_a_regression_strategy_PINS_CONTRACT(self):
+        """PINS CURRENT CONTRACT (M-6 latent landmine, documented-only 2026-05-30).
+
+        ``point_return`` is a *ReturnType* (a LabelFactory dispatch key in
+        label_factory.py), NOT a *LabelingStrategy* (labels.py:97-102). So
+        ``is_regression_strategy("point_return")`` is False today and
+        ``get_contract("point_return")`` raises.
+
+        LATENT TRAP: basic-quote-processor emits metadata
+        ``label_strategy="point_return"`` (metadata.rs) for continuous-bps
+        *regression* labels. If a trainer config ever loads a BQP export with
+        ``labels.task="auto"``, the lobtrainer task="auto" router
+        (dataset.py:472-498) mis-classifies that regression export as
+        *classification* precisely because this function returns False.
+        Currently DORMANT — no trainer config consumes a BQP export (BQP is
+        evaluator-only today; MBO regression exports correctly emit
+        ``label_strategy="regression"``).
+
+        FIX-OF-RECORD (adversarial review 2026-05-30 — do NOT change this
+        function): the producer should emit ``label_strategy="regression"`` so
+        the contract vocabulary stays honest. Making ``is_regression_strategy``
+        ReturnType-aware was REJECTED — it would leave
+        ``get_contract("point_return")`` still raising (split-brain SSoT),
+        permanently couple two deliberately-separate enums, and mask the
+        producer-side field overload. Execute in a coordinated BQP-fusion cycle.
+
+        When that producer fix lands, this expectation is revisited.
+        """
+        assert is_regression_strategy("point_return") is False
+        # Sibling contract surface stays coherent: the same string is "unknown".
+        with pytest.raises(ValueError, match="Unknown labeling strategy"):
+            get_contract("point_return")
+
+    def test_get_contract_trend_alias(self):
+        # "trend" is a documented alias for the TLOB contract (labels.py:210).
+        # The existing test_get_contract_lookup deliberately omits it.
+        assert get_contract("trend") is TLOB_CONTRACT
+
+    def test_get_contract_normalizes_case_and_whitespace(self):
+        # get_contract lower()/strip()s the key before lookup (labels.py:231).
+        assert get_contract("  TREND  ") is TLOB_CONTRACT
+        assert get_contract("TLOB") is TLOB_CONTRACT
+
+    def test_class_name_known_values(self):
+        assert TLOB_CONTRACT.class_name(-1) == "Down"
+        assert TLOB_CONTRACT.class_name(0) == "Stable"
+        assert TLOB_CONTRACT.class_name(1) == "Up"
+        assert TB_CONTRACT.class_name(2) == "ProfitTarget"
+
+    def test_class_name_unknown_fallback(self):
+        # Unrecognized value → exact "Unknown({value})" fallback (labels.py:130).
+        assert TLOB_CONTRACT.class_name(99) == "Unknown(99)"
+        assert TB_CONTRACT.class_name(-5) == "Unknown(-5)"
+
+    def test_is_valid_within_range(self):
+        # value_range is inclusive on BOTH ends (labels.py:134).
+        assert TLOB_CONTRACT.is_valid(-1) is True  # lower bound
+        assert TLOB_CONTRACT.is_valid(0) is True
+        assert TLOB_CONTRACT.is_valid(1) is True  # upper bound
+        assert TB_CONTRACT.is_valid(0) is True
+        assert TB_CONTRACT.is_valid(2) is True
+
+    def test_is_valid_outside_range(self):
+        assert TLOB_CONTRACT.is_valid(2) is False  # 1 past upper
+        assert TLOB_CONTRACT.is_valid(-2) is False  # 1 past lower
+        assert TB_CONTRACT.is_valid(-1) is False
+        assert TB_CONTRACT.is_valid(3) is False
+
     def test_label_constants(self):
         assert LABEL_DOWN == -1
         assert LABEL_STABLE == 0

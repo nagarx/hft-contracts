@@ -73,6 +73,33 @@ def _make_artifact(
 
 
 # ---------------------------------------------------------------------------
+# Item 5 — bool-rejection divergence (characterization / documented-only)
+# ---------------------------------------------------------------------------
+
+
+class TestBoolRejectionDivergenceCharacterization:
+    """CHARACTERIZATION (Item 5, documented-only 2026-05-30).
+
+    Pins the known two-pattern bool-rejection divergence between this
+    artifact's INLINE ``__post_init__`` validation and the shared
+    ``hft_contracts._validators`` primitives (``_validators.py:17-26``
+    pre-documents this as a deferred migration). When the Phase-2 artifacts
+    are migrated onto ``_validators`` (which reject bool-as-int), this test
+    MUST flip to ``pytest.raises`` — that red is the intended, reviewed
+    behavior change, NOT a regression.
+    """
+
+    def test_n_samples_bool_currently_accepted(self) -> None:
+        # MetricCIBound.__post_init__ checks ``n_samples <= 0`` (inline), so
+        # bool True is silently accepted as the integer 1 (True <= 0 is False).
+        # The shared _validators.validate_positive_int REJECTS bool-as-int
+        # (locked separately in test_validators.py). When the deferred Phase-2
+        # migration adopts _validators here, this MUST flip to pytest.raises.
+        b = _make_bound(n_samples=True)
+        assert b.n_samples is True
+
+
+# ---------------------------------------------------------------------------
 # Public API surface
 # ---------------------------------------------------------------------------
 

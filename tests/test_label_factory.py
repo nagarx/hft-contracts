@@ -68,6 +68,17 @@ class TestForwardPriceContract:
         with pytest.raises(ValueError, match="2D"):
             c.validate_shape(fwd)
 
+    def test_post_init_rejects_inconsistent_n_columns(self):
+        # n_columns MUST equal smoothing_window_offset + max_horizon + 1, else
+        # __post_init__ raises (label_factory.py:104-112). This contract
+        # self-guard was previously untested — every other construction in this
+        # file passes a consistent n_columns.
+        with pytest.raises(ValueError, match="invariant violated"):
+            ForwardPriceContract(smoothing_window_offset=5, max_horizon=300, n_columns=999)
+        # off-by-one is also rejected (5 + 10 + 1 = 16, not 15)
+        with pytest.raises(ValueError, match="invariant violated"):
+            ForwardPriceContract(smoothing_window_offset=5, max_horizon=10, n_columns=15)
+
     def test_from_metadata(self):
         metadata = {
             "forward_prices": {

@@ -11,6 +11,55 @@ cross-module **contract schema version** is tracked independently via
 
 ## [Unreleased]
 
+### Audit round 3 — hash robustness + coverage close-out (2026-05-30)
+
+**Hardened**
+
+- **`canonical_hash.sanitize_for_hash`** (M-3) now coerces numpy scalars
+  (`np.generic` → `.item()`) and arrays (`np.ndarray` → `.tolist()`) to native
+  Python BEFORE the float/dict/list branches. A numpy scalar previously fell
+  through to `json.dumps(default=str)` and serialized to its `str` repr
+  (`np.int64(5)` → `'"5"'`, a JSON *string*), producing a DIFFERENT, wrong hash
+  than the native value. Coercion makes numpy inputs hash IDENTICALLY to the
+  `float()`/`int()`-wrapped form producers already pass. **Scope: hardens only
+  the `sanitize=True` path**; the default `sanitize=False` path is unchanged
+  (FeatureSet / dedup / cache sites already wrap at their own boundary). All
+  pre-existing native-input golden hashes are byte-stable (proven — no numpy
+  fixture existed before, so the golden suite could not previously have caught
+  a numpy regression; now locked).
+
+**Documented (latent defects — no behavior change)**
+
+- **M-6** — `is_regression_strategy("point_return")` returns `False` because
+  `point_return` is a *ReturnType*, not a *LabelingStrategy*. basic-quote-processor
+  emits `label_strategy="point_return"` for regression labels, so a trainer
+  loading a BQP export with `task="auto"` would mis-route it to classification.
+  DORMANT (no trainer config consumes a BQP export today). Fix-of-record is
+  producer-side (BQP should emit `"regression"`); a contract-level guard on
+  `is_regression_strategy` was REJECTED (would leave `get_contract` raising on
+  the same string = split-brain SSoT, and masks the producer-side field
+  overload). Pinned as an executable contract assertion in
+  `test_contract_self_consistency.py`.
+- **Item 5** — the Phase-2 artifacts (`MetricCIBound` et al.) inline
+  `n_samples <= 0` validation, which accepts bool-as-int (`True` → 1), diverging
+  from the shared `_validators` primitives (which reject bool). The migration is
+  deferred; the divergence is now pinned by a characterization test that must
+  flip to `pytest.raises` when the migration lands.
+
+**Tests (+26)**
+
+- `test_canonical_hash.py` +10 — numpy coercion + native-equivalence golden.
+- `test_contract_self_consistency.py` +7 — `LabelContract.is_valid` / `.class_name`,
+  `get_contract("trend")` alias + case/whitespace normalization, M-6 pin.
+- `test_label_factory.py` +1 — `ForwardPriceContract.__post_init__` n_columns
+  self-guard.
+- `test_validation_gates.py` +6 — `validate_idx_97_reserved`
+  (pass / warn / strict-raise / wrong-ndim / few-features / missing-file;
+  synthetic NPY fixtures under `tmp_path` only).
+- `test_export_contract_real_corpus.py` (NEW) +1 — real v3p0 `*_metadata.json`
+  through `validate_export_contract` (skipif when the data volume is absent).
+- `test_test_metrics_ci_artifact.py` +1 — Item-5 bool-divergence characterization.
+
 ### Fixed (from_dict null-collection crash family — 2026-05-29 post-release audit)
 
 Second adversarial pass (5 fresh-eye agents) found the 2.8.1 H-2 fix

@@ -10,6 +10,7 @@ This is the safety net that catches contract drift between Rust and Python.
 
 import copy
 
+import numpy as np
 import pytest
 
 from hft_contracts import (
@@ -32,6 +33,7 @@ from hft_contracts.validation import (
     validate_provenance_present,
     validate_off_exchange_export_contract,
     validate_any_export_contract,
+    validate_idx_97_reserved,
 )
 
 
@@ -418,6 +420,57 @@ class TestContractConstants:
 
     def test_full_feature_count(self):
         assert FULL_FEATURE_COUNT == 148
+
+
+# =============================================================================
+# Tests: validate_idx_97_reserved (L-8 — NPY-value spot-check, feature idx 97)
+# =============================================================================
+
+
+class TestValidateIdx97Reserved:
+    """Spot-checks feature index 97 (RESERVED 0.0 post-Phase-O) in the first
+    sample of a *_sequences.npy. ``validate_export_contract`` only inspects
+    metadata.json and never the NPY values, so this validator closes that gap.
+    Fixtures are written under pytest ``tmp_path`` only — never under data/."""
+
+    @staticmethod
+    def _make_seq(tmp_path, idx97_value=0.0, *, ndim=3):
+        if ndim == 3:
+            arr = np.zeros((2, 3, 98), dtype=np.float32)
+            arr[..., 97] = idx97_value  # 1.5 is exact in float32 → reliable
+        else:
+            arr = np.zeros((2, 98), dtype=np.float32)
+        p = tmp_path / "x_sequences.npy"
+        np.save(p, arr)
+        return p
+
+    def test_idx97_zero_passes(self, tmp_path):
+        assert validate_idx_97_reserved(self._make_seq(tmp_path, 0.0)) == []
+
+    def test_idx97_nonzero_warns_nonstrict(self, tmp_path):
+        out = validate_idx_97_reserved(self._make_seq(tmp_path, 1.5), strict=False)
+        assert len(out) == 1
+        assert "RESERVED 0.0 violation" in out[0]
+
+    def test_idx97_nonzero_strict_raises(self, tmp_path):
+        with pytest.raises(ContractError, match="RESERVED 0.0 violation"):
+            validate_idx_97_reserved(self._make_seq(tmp_path, 1.5), strict=True)
+
+    def test_idx97_wrong_ndim_warns(self, tmp_path):
+        # 2D array → cannot locate idx 97 → warning, never raises.
+        out = validate_idx_97_reserved(self._make_seq(tmp_path, ndim=2))
+        assert len(out) == 1
+        assert "expected 3D" in out[0]
+
+    def test_idx97_few_features_skipped(self, tmp_path):
+        # F < 98 → pre-stable-features regime; idx 97 doesn't exist → [].
+        p = tmp_path / "x_sequences.npy"
+        np.save(p, np.zeros((2, 3, 40), dtype=np.float32))
+        assert validate_idx_97_reserved(p) == []
+
+    def test_idx97_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            validate_idx_97_reserved(tmp_path / "does_not_exist.npy")
 
 
 # =============================================================================
