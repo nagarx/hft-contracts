@@ -209,6 +209,23 @@ class TestValidateExportDirMixedSchema:
         with pytest.raises(ContractError):
             validate_export_dir(tmp_path)
 
+    def test_manifest_schema_differs_from_uniform_day_schema_raises(self, tmp_path):
+        """validation.py:781-787 — day-files are UNIFORM and valid at the current
+        schema (3.0, so they pass the per-day contract), but the manifest HEADER
+        claims a DIFFERENT schema_version. This is the 'manifest lies about the
+        schema its day-files were written under' case, distinct from mixed-day
+        pollution (the ``len(all_schema_versions) > 1`` branch). A mutation that
+        deletes the 781-787 ``elif`` (or flips its ``!=``) passes every other test
+        in this file but fails here."""
+        _build_export(
+            tmp_path,
+            splits={"train": ["20250203", "20250204"], "val": ["20250205"], "test": ["20250206"]},
+            schema="3.0",  # day-files uniform + valid → pass the per-day contract
+            manifest={"schema_version": "2.9"},  # manifest header disagrees
+        )
+        with pytest.raises(ContractError, match="manifest.schema_version"):
+            validate_export_dir(tmp_path)
+
 
 class TestValidateExportDirMixedCommit:
     def test_mixed_commit_raises(self, tmp_path):
