@@ -351,6 +351,53 @@ class LabelFactory:
         return dominant * 10000.0
 
     @staticmethod
+    def forward_realized_variance(
+        forward_prices: np.ndarray,
+        horizon: int,
+        smoothing_window: int,
+    ) -> np.ndarray:
+        """Forward realized variance over the (t, t+h] path, in bps² (the SECOND moment).
+
+        Object: the quadratic variation of the forward log-price path — a DIRECTIONLESS
+        second-moment target (the FINDING-052 / FINDING-054 forward-variance lane), NOT a
+        return. Per row, over the forward path p_t .. p_{t+h} (offset k = smoothing_window,
+        column k = p_t):
+
+            r_j = log(p_{t+j} / p_{t+j-1})   for j = 1..h     (h forward log-returns)
+            RV  = (Σ_j r_j²) * 1e8                             (·1e8 → bps², = realized_vol²)
+
+        INLINED (not delegated to ``hft_metrics.realized_measures.realized_variance``)
+        because hft-contracts is a numpy-only leaf consumed by every module — but bit-for-bit
+        equal to ``realized_variance(forward_prices[i, k:k+h+1], scale_bps=True)`` by
+        construction (locked by the cross-module equality test in test_label_factory.py).
+
+        Unit note: the return methods above emit basis points; realized VARIANCE is bps²
+        (·1e8). ``smoothing_window`` is used ONLY as the base-column offset (k = p_t), NOT
+        as a smoother — realized variance must not pre-smooth the path. A non-positive price
+        in the path (corrupt export) yields NaN → ``multi_horizon``'s ``assert_finite_array``
+        fails loud (hft-rules §8 — never silently zero a corrupt second moment).
+
+        Args:
+            forward_prices: [N, k + max_H + 1] float64 USD prices.
+            horizon: Forward horizon h (events/bins).
+            smoothing_window: Offset k locating the base price column (column k = p_t).
+
+        Returns:
+            [N] float64 — non-negative realized variance in bps² (·1e8).
+
+        Raises:
+            ValueError: If inputs are malformed or horizon exceeds array bounds.
+        """
+        _validate_fp_horizon_k(forward_prices, horizon, smoothing_window)
+        k = smoothing_window
+        path = forward_prices[:, k : k + horizon + 1]            # [N, h+1] : p_t .. p_{t+h}
+        # Non-positive price (corrupt export) → NaN → fail-loud in multi_horizon (§8),
+        # never a silent zero. Real forward_prices are strictly positive USD mids.
+        safe = np.where(path > DIVISION_GUARD_EPS, path, np.nan)
+        log_r = np.diff(np.log(safe), axis=1)                    # [N, h] forward log-returns
+        return np.sum(log_r * log_r, axis=1) * 1e8              # bps² (·1e8, matches realized_measures)
+
+    @staticmethod
     def multi_horizon(
         forward_prices: np.ndarray,
         horizons: List[int],
@@ -451,4 +498,6 @@ _RETURN_FUNCTIONS = {
     "point_return": LabelFactory.point_return,
     "mean_return": LabelFactory.mean_return,
     "peak_return": LabelFactory.peak_return,
+    # Second-moment target (bps², NOT a return) — the FINDING-052/054 forward-variance lane.
+    "forward_realized_variance": LabelFactory.forward_realized_variance,
 }

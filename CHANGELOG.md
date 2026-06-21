@@ -13,6 +13,18 @@ cross-module **contract schema version** is tracked independently via
 
 ### Added
 
+- **v2.9.0** — `LabelFactory.forward_realized_variance(forward_prices, horizon, smoothing_window)`:
+  a DIRECTIONLESS second-moment label (the FINDING-052/054 forward-variance lane) — quadratic
+  variation of the forward log-price path, `RV = (Σ_j log(p_{t+j}/p_{t+j-1})²)·1e8` in bps².
+  Computable Python-side at load time from existing `forward_prices` exports (like
+  `smoothed_return`); registered in `_RETURN_FUNCTIONS`, dispatch via
+  `multi_horizon(..., return_type="forward_realized_variance")`. INLINED (hft-contracts stays a
+  numpy-only leaf) but bit-for-bit equal to
+  `hft_metrics.realized_measures.realized_variance(..., scale_bps=True)` (cross-module equality
+  test). NOT a return — unit is bps² (not bps); use `task="regression"`. Additive public API →
+  MINOR bump 2.8.1→2.9.0; NO `SCHEMA_VERSION` change (load-time Python only; no Rust / export
+  wire-format change). The Rust export-side generator + cross-language parity is a sequenced follow-up.
+
 - **`validate_export_dir(export_dir, *, strict=True) -> list[str]`** (Foundation
   Integrity C1, 2026-05-30) — NEW public directory-level export-integrity validator,
   exported in `__all__`. Composes the per-day `validate_day_metadata` SSoT across a

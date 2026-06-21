@@ -461,3 +461,68 @@ class TestInputValidation:
         # result = (Inf - 100) / 100 * 10000 = Inf → caught by isfinite check
         with pytest.raises(ValueError, match="input invariant violation"):
             LabelFactory.multi_horizon(fp, horizons=[1], smoothing_window=5)
+
+
+class TestForwardRealizedVariance:
+    """forward_realized_variance: quadratic variation of the forward path in bps² (FINDING-052/054).
+
+    A directionless SECOND-moment label (NOT a return). Golden hand-calcs + non-negativity + the
+    k-offset + bounds + multi_horizon dispatch + the cross-module equality to the hft-metrics SSoT.
+    """
+
+    def test_golden_hand_calc(self):
+        # fp=[[100,101,102]], k=0, h=2: r1=ln(101/100), r2=ln(102/101); RV=(r1²+r2²)·1e8
+        fp = np.array([[100.0, 101.0, 102.0]])
+        r1 = np.log(101.0 / 100.0)
+        r2 = np.log(102.0 / 101.0)
+        expected = (r1 * r1 + r2 * r2) * 1e8
+        out = LabelFactory.forward_realized_variance(fp, horizon=2, smoothing_window=0)
+        assert out.shape == (1,)
+        assert out[0] == pytest.approx(expected, rel=1e-12)
+
+    def test_non_negative_and_finite(self):
+        rng = np.random.default_rng(0)
+        fp = 100.0 * np.exp(np.cumsum(rng.normal(0, 0.01, size=(50, 20)), axis=1))
+        out = LabelFactory.forward_realized_variance(fp, horizon=10, smoothing_window=5)
+        assert out.shape == (50,)
+        assert np.all(out >= 0.0) and np.all(np.isfinite(out))
+
+    def test_k_offset_ignores_past_columns(self):
+        # columns before k must NOT affect the forward variance (k=2 -> path = cols[2:5])
+        fp = np.array([[1.0, 50.0, 100.0, 101.0, 102.0]])
+        r1 = np.log(101.0 / 100.0)
+        r2 = np.log(102.0 / 101.0)
+        expected = (r1 * r1 + r2 * r2) * 1e8
+        out = LabelFactory.forward_realized_variance(fp, horizon=2, smoothing_window=2)
+        assert out[0] == pytest.approx(expected, rel=1e-12)
+
+    def test_constant_path_zero_variance(self):
+        fp = np.full((4, 8), 100.0)
+        out = LabelFactory.forward_realized_variance(fp, horizon=2, smoothing_window=3)
+        assert np.allclose(out, 0.0)
+
+    def test_horizon_out_of_bounds_raises(self):
+        fp = np.full((4, 6), 100.0)
+        with pytest.raises(ValueError):
+            LabelFactory.forward_realized_variance(fp, horizon=10, smoothing_window=2)
+
+    def test_dispatch_via_multi_horizon(self):
+        rng = np.random.default_rng(1)
+        fp = 100.0 * np.exp(np.cumsum(rng.normal(0, 0.01, size=(30, 60)), axis=1))
+        out = LabelFactory.multi_horizon(
+            fp, horizons=[10, 20], smoothing_window=5, return_type="forward_realized_variance")
+        assert out.shape == (30, 2)
+        assert np.all(out >= 0.0) and np.all(np.isfinite(out))
+
+    def test_matches_hft_metrics_realized_variance(self):
+        """Cross-module equality lock: the INLINED formula == hft_metrics.realized_measures.
+        realized_variance(scale_bps=True) per row — proves the inline is the SSoT without making
+        hft-contracts depend on hft-metrics (the dependency arrow stays correct)."""
+        rm = pytest.importorskip("hft_metrics.realized_measures")
+        rng = np.random.default_rng(7)
+        fp = 100.0 * np.exp(np.cumsum(rng.normal(0, 0.01, size=(8, 40)), axis=1))
+        k, h = 5, 12
+        out = LabelFactory.forward_realized_variance(fp, horizon=h, smoothing_window=k)
+        for i in range(fp.shape[0]):
+            ref = rm.realized_variance(fp[i, k:k + h + 1], scale_bps=True)
+            assert out[i] == pytest.approx(ref, rel=1e-12)
