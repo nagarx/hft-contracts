@@ -136,6 +136,17 @@ class RecordType(str, Enum):
       ``hft-ops/ledger/dedup.py::check_duplicate`` MUST filter this type
       out so retries re-run instead of being silently skipped as
       duplicates.
+    - ``discovery`` (2026-06-27): An intraday discovery-harness probe verdict
+      (glbx_discovery / xsec_equity_discovery / nvda_discovery / opra_discovery
+      / pead_discovery). Fingerprinted by the probe CONFIG hash
+      (``provenance.config_sha256`` — the treatment identity), so a probe is
+      comparable / dedup'd / monitorable as a first-class ledger record. Like
+      ``analysis``, it has no trainer ``history.json``: the verdict string,
+      ``any_tradeable_edge``, acquisition decision, and power / selection-bias
+      rails live in ``training_metrics`` (free-form dict) + ``notes``. Adapted
+      from a ``discovery_verdict.Verdict`` by
+      ``hft_ops.ledger.discovery_record.record_from_verdict``. The verdict
+      is an OBSERVATION — it never enters the fingerprint.
     """
 
     TRAINING = "training"
@@ -145,6 +156,7 @@ class RecordType(str, Enum):
     EVALUATION = "evaluation"
     SWEEP_AGGREGATE = "sweep_aggregate"
     SWEEP_FAILURE = "sweep_failure"
+    DISCOVERY = "discovery"
 
 
 @dataclass
@@ -430,8 +442,9 @@ class ExperimentRecord:
     # Phase 1.3 record-typing fields
     record_type: str = "training"
     """Type of record. One of: training, analysis, calibration, backtest, evaluation,
-    sweep_aggregate. Use the ``RecordType`` enum's ``.value`` for type-safety.
-    Default ``training`` preserves backward compat with pre-Phase-1.3 records."""
+    sweep_aggregate, sweep_failure, discovery. Use the ``RecordType`` enum's ``.value``
+    for type-safety. Default ``training`` preserves backward compat with
+    pre-Phase-1.3 records."""
 
     sub_records: List[Dict[str, Any]] = field(default_factory=list)
     """For ``sweep_aggregate`` records: per-sub-experiment summaries (typically

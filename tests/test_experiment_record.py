@@ -282,6 +282,7 @@ class TestRecordType:
         assert RecordType.BACKTEST.value == "backtest"
         assert RecordType.EVALUATION.value == "evaluation"
         assert RecordType.SWEEP_AGGREGATE.value == "sweep_aggregate"
+        assert RecordType.DISCOVERY.value == "discovery"
 
 
 class TestExperimentRecordDefaults:

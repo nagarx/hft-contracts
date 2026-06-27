@@ -170,6 +170,35 @@ Coerced-to-empty values that then fail a non-empty `__post_init__` invariant
   PATCH-grade hardening AND that MINOR feature together (→ 2.9.0) once the
   concurrent work lands, rather than racing the shared `__init__.py`.
 
+## [2.10.0] — 2026-06-27
+
+### Added (discovery-lane ledger tracking — `RecordType.DISCOVERY`)
+
+- **`RecordType.DISCOVERY = "discovery"`** — new enum value so an intraday
+  discovery-harness probe verdict (glbx_discovery / xsec_equity_discovery /
+  nvda_discovery / opra_discovery / pead_discovery) can be registered as a
+  first-class, fingerprinted `ExperimentRecord` and become comparable / dedup'd
+  / monitorable alongside training runs. Like `analysis`, a discovery record has
+  no trainer `history.json`: the verdict string, `any_tradeable_edge`,
+  acquisition decision, and power / selection-bias rails live in
+  `training_metrics` (free-form) + `notes`. The probe CONFIG hash
+  (`provenance.config_sha256`) is the treatment identity → the record
+  `fingerprint`; the verdict is an OBSERVATION and never enters any fingerprint
+  input. The hft-ops adapter `hft_ops.ledger.discovery_record.record_from_verdict`
+  composes the record via the `experiment_recorder.record_from_artifacts` SSoT.
+- Additive public-API change (a new enum VALUE) → MINOR bump 2.9.0 → 2.10.0.
+  This gives downstream consumers (hft-ops) a `hft-contracts>=2.10.0` pin target
+  for the new value.
+
+### Notes
+
+- **`INDEX_SCHEMA_VERSION` UNCHANGED at `1.6.0`** — adding an enum VALUE adds no
+  new key to `index_entry()` (it already projects the `record_type` string), so
+  no whitelist change and no on-disk `index.json` envelope rebuild is triggered.
+- **`SCHEMA_VERSION` UNCHANGED at `3.0`** — no data-contract / wire-format change.
+- No new `ExperimentRecord` field — the verdict is mapped onto existing free-form
+  fields (`training_metrics` / `notes` / `tags` / `hypothesis`).
+
 ## [2.8.1] — 2026-05-28
 
 PATCH release closing 6 findings from the 2026-05-28 comprehensive
