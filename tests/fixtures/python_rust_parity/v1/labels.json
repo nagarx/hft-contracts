@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "rust_commit": "c62a1c0d9ed1b9b75dc9dabace78bf51d78ceead",
+  "rust_commit": "b5e746dfc4f0023d6650ca8ad12b52db797fe1fa",
   "rust_crate_version": "0.1.0",
-  "generated_at_utc": "2026-05-07T23:37:23Z",
+  "generated_at_utc": "2026-05-08T03:15:09Z",
   "description": "CR6 / NEW-CRITICAL-2 cross-language LabelFactory parity fixture. Rust outputs are RAW DECIMAL FRACTIONS (e.g., 0.01 = 1%); Python parity test must multiply by 10000.0 before comparison to LabelFactory.{smoothed,point,mean,peak}_return outputs (basis points). Schema: see DESIGN.md sibling. Regenerate: cargo test -p hft-labeling --test parity_fixture_gen -- --ignored --nocapture.",
   "scenarios": [
     {

@@ -1,5 +1,7 @@
 # hft-contracts — Codebase Reference
 
+> **Pipeline scope (2026-06-02).** This module is part of an **intraday trading research pipeline** — an experiment-first platform for discovering and validating *any* profitable **intraday** trading edge (no overnight positions), across approach classes (microstructure/HFT, scalping, intraday momentum, intraday statistical arbitrage, …) and instruments (equities, futures, same-day options). The pipeline *originated* as a high-frequency NVDA MBO/LOB microstructure system — that origin explains the "HFT" / "LOB" / "MBO" naming here — and that microstructure-direction program is now one (largely-closed) track among many. **Names are historical; the mission is general.** This module's role: the contract-plane SSoT — auto-generated cross-module constants from `pipeline_contract.toml` + LabelFactory + ForwardPriceContract + `canonical_hash` + provenance / experiment-record / signal-manifest / feature-set contracts + atomic I/O; the cross-module contract authority, multi-source by design (the off-exchange `OffExchangeFeatureIndex` schema is the precedent for registering a new data source / approach). For the full mission + approach taxonomy + capability-readiness boundary, see root `CLAUDE.md` §Research Scope & Charter (+ `CROSS_ASSET_OFI_FINDINGS_AND_ISSUES_2026_06_01.md` §9).
+
 > **Version**: 2.8.0 | **Schema Version**: 3.0 (Phase G G.6.A bump 2.2 → 3.0 MAJOR per CLAUDE.md root rule: any modification to stable features 0-97 = BREAKING) | **Tests**: 754 passing (post Phase 8D `experiment_recorder` SSoT v2.8.0 commit `d773ac4` 2026-05-14 + Sub-cycle 2 v2.6.0 composer signature + Phase V.A.4 trust-column fingerprint + γ-1 LITE close-out; cumulative +236 since 518 banner) | **Last Updated**: 2026-05-21 (Cycle A-rev #PY-341 doc-hygiene bundle — banner refresh per validation cycle Wave 2K finding)
 >
 > **Phase V.A.4 SHIPPED (2026-04-21, commit `a0fa3d2`)** — New `ExperimentRecord.compatibility_fingerprint: Optional[str]` field (64-hex SHA-256 validated via `CONTENT_HASH_RE`). Surfaces cross-experiment comparability: every record produced against the same CompatibilityContract version has the same fingerprint. Projected into `index_entry()` for `hft-ops ledger list --compatibility-fp <hex>` filter. `INDEX_SCHEMA_VERSION` bumped 1.3.0 → **1.4.0** (MINOR additive — triggers envelope auto-rebuild on existing ledgers per Phase 8B mechanism).
@@ -10,7 +12,7 @@
 
 ## Role in the Pipeline
 
-`hft-contracts` is the **single source of truth (SSoT) for cross-module data contracts** in the HFT pipeline. Every Python consumer (lobtrainer, lobbacktest, hft-ops, hft-feature-evaluator, basic-quote-processor) imports from here instead of maintaining independent copies.
+`hft-contracts` is the **single source of truth (SSoT) for cross-module data contracts** in the pipeline. Every Python consumer (lobtrainer, lobbacktest, hft-ops, hft-feature-evaluator, basic-quote-processor) imports from here instead of maintaining independent copies.
 
 Zero runtime state, pure types + validation functions. I/O is lazy — importing any hft-contracts module has **no side effects**; subprocess (git) and filesystem (SignalManifest.validate, hash_file, hash_directory_manifest) occur only when explicit capture/validate/load functions are invoked.
 

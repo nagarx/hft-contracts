@@ -1,8 +1,8 @@
 # hft-contracts
 
-Single source of truth for every cross-module data contract in the HFT
-pipeline — feature indices, label contracts, provenance, canonical
-hashing, FeatureSet registry schema, and atomic I/O.
+Single source of truth for every cross-module data contract in the **intraday trading research pipeline** (origin: HFT microstructure) — feature indices, label contracts, provenance, canonical hashing, FeatureSet registry schema, and atomic I/O.
+
+> **Pipeline scope (2026-06-02).** This module is part of an **intraday trading research pipeline** — an experiment-first platform for discovering and validating *any* profitable **intraday** trading edge (no overnight positions), across approach classes (microstructure/HFT, scalping, intraday momentum, intraday statistical arbitrage, …) and instruments (equities, futures, same-day options). The pipeline *originated* as a high-frequency NVDA MBO/LOB microstructure system — that origin explains the "HFT" / "LOB" / "MBO" naming here — and that microstructure-direction program is now one (largely-closed) track among many. **Names are historical; the mission is general.** This module's role: the contract-plane SSoT — auto-generated cross-module constants from `pipeline_contract.toml` + LabelFactory + ForwardPriceContract + `canonical_hash` + provenance / experiment-record / signal-manifest / feature-set contracts + atomic I/O; the cross-module contract authority, multi-source by design (the off-exchange `OffExchangeFeatureIndex` schema is the precedent for registering a new data source / approach). For the full mission + approach taxonomy + capability-readiness boundary, see root `CLAUDE.md` §Research Scope & Charter (+ `CROSS_ASSET_OFI_FINDINGS_AND_ISSUES_2026_06_01.md` §9).
 
 **Version**: 2.2.0 | **Schema**: 2.2 | **Tests**: 300 (295 + 5 hft-ops-conditional) | **Last Updated**: 2026-04-20 (REV 2 public-push + follow-up hardening)
 
@@ -51,7 +51,7 @@ from hft_contracts import (
 
 ## What this package is
 
-`hft-contracts` is the **contract plane** for the HFT pipeline. Every
+`hft-contracts` is the **contract plane** for the pipeline. Every
 cross-module invariant — the shape of a feature vector, the encoding of
 a label, the schema of an experiment record, the format of a content
 hash, the atomic-write discipline of a ledger — is defined exactly once,
