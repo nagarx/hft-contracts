@@ -5,11 +5,60 @@ All notable changes to this project are documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/) for the Python package; the
 cross-module **contract schema version** is tracked independently via
-`SCHEMA_VERSION` in `_generated.py` (locked at `2.2` for this release).
+`SCHEMA_VERSION` in `_generated.py` (currently `3.0` — Phase G G.6.A
+MAJOR bump 2.2 → 3.0; each release's `### Notes` records its schema
+impact).
 
 ---
 
 ## [Unreleased]
+
+### Changed
+
+- Documentation-only maintenance since 2.10.0 (no code / API / wire-format
+  change), incl. the 2026-07-07 Phase-2 TRUTH drift pass: README/CODEBASE
+  version+schema headers, LabelFactory method list (phantom `dominant_return`
+  removed, `forward_realized_variance` added), consumer list, test-count
+  pointers per hft-rules §11, and this changelog's section-integrity repair —
+  the released v2.9.0 content that had accrued under `[Unreleased]` now sits
+  under its proper `[2.9.0] — 2026-06-21` heading below.
+
+## [2.10.0] — 2026-06-27
+
+### Added (discovery-lane ledger tracking — `RecordType.DISCOVERY`)
+
+- **`RecordType.DISCOVERY = "discovery"`** — new enum value so an intraday
+  discovery-harness probe verdict (glbx_discovery / xsec_equity_discovery /
+  nvda_discovery / opra_discovery / pead_discovery) can be registered as a
+  first-class, fingerprinted `ExperimentRecord` and become comparable / dedup'd
+  / monitorable alongside training runs. Like `analysis`, a discovery record has
+  no trainer `history.json`: the verdict string, `any_tradeable_edge`,
+  acquisition decision, and power / selection-bias rails live in
+  `training_metrics` (free-form) + `notes`. The probe CONFIG hash
+  (`provenance.config_sha256`) is the treatment identity → the record
+  `fingerprint`; the verdict is an OBSERVATION and never enters any fingerprint
+  input. The hft-ops adapter `hft_ops.ledger.discovery_record.record_from_verdict`
+  composes the record via the `experiment_recorder.record_from_artifacts` SSoT.
+- Additive public-API change (a new enum VALUE) → MINOR bump 2.9.0 → 2.10.0.
+  This gives downstream consumers (hft-ops) a `hft-contracts>=2.10.0` pin target
+  for the new value.
+
+### Notes
+
+- **`INDEX_SCHEMA_VERSION` UNCHANGED at `1.6.0`** — adding an enum VALUE adds no
+  new key to `index_entry()` (it already projects the `record_type` string), so
+  no whitelist change and no on-disk `index.json` envelope rebuild is triggered.
+- **`SCHEMA_VERSION` UNCHANGED at `3.0`** — no data-contract / wire-format change.
+- No new `ExperimentRecord` field — the verdict is mapped onto existing free-form
+  fields (`training_metrics` / `notes` / `tags` / `hypothesis`).
+
+## [2.9.0] — 2026-06-21
+
+Coordinated release cut (`77bcc4c`) — stamps the 2026-05-29/30 hardening
+waves below together with the new MINOR `forward_realized_variance`
+feature, exactly as the deferral `### Notes` at the end of this section
+planned. (This section previously accrued under `[Unreleased]`;
+re-headed 2026-07-07 — content preserved verbatim.)
 
 ### Added
 
@@ -48,8 +97,8 @@ cross-module **contract schema version** is tracked independently via
   `build_provenance` + `experiment_recorder.record_from_artifacts`.
 
 > Both additions are additive PUBLIC API → a MINOR-grade bump. The `__version__` /
-> `pyproject.toml` stamp to **2.9.0** is deferred to the coordinated release (see the
-> `### Notes` block below); these entries accrue here under `[Unreleased]` until that cut.
+> `pyproject.toml` stamp to **2.9.0** was deferred to the coordinated release (see the
+> `### Notes` block below); that cut landed as `77bcc4c` (2026-06-21) — this section's heading.
 
 ### Audit round 3 — hash robustness + coverage close-out (2026-05-30)
 
@@ -163,41 +212,14 @@ Coerced-to-empty values that then fail a non-empty `__post_init__` invariant
 
 ### Notes
 
-- **Version bump deferred to a coordinated release.** `__version__` /
+- **Version bump deferred to a coordinated release** *(historical — RESOLVED
+  by the 2026-06-21 cut `77bcc4c`, which stamped exactly this: the PATCH-grade
+  hardening + the MINOR feature together as 2.9.0)*. `__version__` /
   `pyproject.toml` are intentionally NOT bumped in this commit: `__init__.py`
   is concurrently being edited (a new `validate_export_dir` public validator),
   which is a MINOR-grade addition. The next release should stamp both this
   PATCH-grade hardening AND that MINOR feature together (→ 2.9.0) once the
   concurrent work lands, rather than racing the shared `__init__.py`.
-
-## [2.10.0] — 2026-06-27
-
-### Added (discovery-lane ledger tracking — `RecordType.DISCOVERY`)
-
-- **`RecordType.DISCOVERY = "discovery"`** — new enum value so an intraday
-  discovery-harness probe verdict (glbx_discovery / xsec_equity_discovery /
-  nvda_discovery / opra_discovery / pead_discovery) can be registered as a
-  first-class, fingerprinted `ExperimentRecord` and become comparable / dedup'd
-  / monitorable alongside training runs. Like `analysis`, a discovery record has
-  no trainer `history.json`: the verdict string, `any_tradeable_edge`,
-  acquisition decision, and power / selection-bias rails live in
-  `training_metrics` (free-form) + `notes`. The probe CONFIG hash
-  (`provenance.config_sha256`) is the treatment identity → the record
-  `fingerprint`; the verdict is an OBSERVATION and never enters any fingerprint
-  input. The hft-ops adapter `hft_ops.ledger.discovery_record.record_from_verdict`
-  composes the record via the `experiment_recorder.record_from_artifacts` SSoT.
-- Additive public-API change (a new enum VALUE) → MINOR bump 2.9.0 → 2.10.0.
-  This gives downstream consumers (hft-ops) a `hft-contracts>=2.10.0` pin target
-  for the new value.
-
-### Notes
-
-- **`INDEX_SCHEMA_VERSION` UNCHANGED at `1.6.0`** — adding an enum VALUE adds no
-  new key to `index_entry()` (it already projects the `record_type` string), so
-  no whitelist change and no on-disk `index.json` envelope rebuild is triggered.
-- **`SCHEMA_VERSION` UNCHANGED at `3.0`** — no data-contract / wire-format change.
-- No new `ExperimentRecord` field — the verdict is mapped onto existing free-form
-  fields (`training_metrics` / `notes` / `tags` / `hypothesis`).
 
 ## [2.8.1] — 2026-05-28
 

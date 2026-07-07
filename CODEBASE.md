@@ -2,7 +2,7 @@
 
 > **Pipeline scope (2026-06-02).** This module is part of an **intraday trading research pipeline** — an experiment-first platform for discovering and validating *any* profitable **intraday** trading edge (no overnight positions), across approach classes (microstructure/HFT, scalping, intraday momentum, intraday statistical arbitrage, …) and instruments (equities, futures, same-day options). The pipeline *originated* as a high-frequency NVDA MBO/LOB microstructure system — that origin explains the "HFT" / "LOB" / "MBO" naming here — and that microstructure-direction program is now one (largely-closed) track among many. **Names are historical; the mission is general.** This module's role: the contract-plane SSoT — auto-generated cross-module constants from `pipeline_contract.toml` + LabelFactory + ForwardPriceContract + `canonical_hash` + provenance / experiment-record / signal-manifest / feature-set contracts + atomic I/O; the cross-module contract authority, multi-source by design (the off-exchange `OffExchangeFeatureIndex` schema is the precedent for registering a new data source / approach). For the full mission + approach taxonomy + capability-readiness boundary, see root `CLAUDE.md` §Research Scope & Charter (+ `CROSS_ASSET_OFI_FINDINGS_AND_ISSUES_2026_06_01.md` §9).
 
-> **Version**: 2.10.0 (RecordType +`DISCOVERY` for discovery-harness verdicts → 8 variants) | **Schema Version**: 3.0 (Phase G G.6.A bump 2.2 → 3.0 MAJOR per CLAUDE.md root rule: any modification to stable features 0-97 = BREAKING) | **Tests**: 754+ passing (run `pytest --collect-only -q` for the live count; post Phase 8D `experiment_recorder` SSoT v2.8.0 commit `d773ac4` 2026-05-14 + Sub-cycle 2 v2.6.0 composer signature + Phase V.A.4 trust-column fingerprint + γ-1 LITE close-out) | **Last Updated**: 2026-06-27 (doc-sync: version → 2.10.0; RecordType.DISCOVERY)
+> **Version**: 2.10.0 (RecordType +`DISCOVERY` for discovery-harness verdicts → 8 variants) | **Schema Version**: 3.0 (Phase G G.6.A bump 2.2 → 3.0 MAJOR per CLAUDE.md root rule: any modification to stable features 0-97 = BREAKING) | **Tests**: run `pytest --collect-only -q` for the live count (hand-typed counts are banned per hft-rules §11; post Phase 8D `experiment_recorder` SSoT v2.8.0 commit `d773ac4` 2026-05-14 + Sub-cycle 2 v2.6.0 composer signature + Phase V.A.4 trust-column fingerprint + γ-1 LITE close-out) | **Last Updated**: 2026-07-07 (Phase-2 TRUTH doc-drift fixes: SCHEMA_VERSION/idx-97 row, LabelFactory row +`forward_realized_variance`, consumer list, test-count pointers)
 >
 > **Phase V.A.4 SHIPPED (2026-04-21, commit `a0fa3d2`)** — New `ExperimentRecord.compatibility_fingerprint: Optional[str]` field (64-hex SHA-256 validated via `CONTENT_HASH_RE`). Surfaces cross-experiment comparability: every record produced against the same CompatibilityContract version has the same fingerprint. Projected into `index_entry()` for `hft-ops ledger list --compatibility-fp <hex>` filter. `INDEX_SCHEMA_VERSION` bumped 1.3.0 → **1.4.0** (MINOR additive — triggers envelope auto-rebuild on existing ledgers per Phase 8B mechanism).
 >
@@ -12,7 +12,7 @@
 
 ## Role in the Pipeline
 
-`hft-contracts` is the **single source of truth (SSoT) for cross-module data contracts** in the pipeline. Every Python consumer (lobtrainer, lobbacktest, hft-ops, hft-feature-evaluator, basic-quote-processor) imports from here instead of maintaining independent copies.
+`hft-contracts` is the **single source of truth (SSoT) for cross-module data contracts** in the pipeline. Every Python consumer (hft-ops, lobtrainer, lobbacktest, hft-feature-evaluator, lob-dataset-analyzer) imports from here instead of maintaining independent copies. (`basic-quote-processor` is a Rust crate with zero Python files — NOT a Python importer; its 34-feature off-exchange layout is mirrored Python-side here as `OffExchangeFeatureIndex`.)
 
 Zero runtime state, pure types + validation functions. I/O is lazy — importing any hft-contracts module has **no side effects**; subprocess (git) and filesystem (SignalManifest.validate, hash_file, hash_directory_manifest) occur only when explicit capture/validate/load functions are invoked.
 
@@ -46,15 +46,16 @@ hft-contracts/
 │   ├── _validators.py         # INTERNAL (underscore — do NOT import across module boundaries). Shared field-validator primitive library consumed by the artifact/dataclass `__post_init__` methods: finite-float / positive-int / sha256-hex / CI-ordering / feature-set-ref, etc. Fail-loud ValueError; rejects bool-as-number. ZERO intra-package imports.
 │   ├── _testing.py            # INTERNAL test-support: monorepo-root discovery (require_monorepo_root) + phase0 fixture-dir helper (phase0_fixture_dir). Editable-install only; wheel/sdist raise FileNotFoundError. Consumed by sibling-repo integration tests, not production code.
 │   └── py.typed               # PEP 561 marker (REV 2 follow-up, 2026-04-20). Signals to mypy/pyright/pyre that inline annotations are authoritative. Required since pyproject.toml advertises `Typing :: Typed` classifier.
-├── tests/                     # 300 tests authoring env / 295 + 5 skip fresh-clone (REV 2: +11 regression tests — F1 ContractError identity + F2 _atomic_io shim + F8 CONTENT_HASH_RE public/legacy/warning + __version__ presence/format/pyproject-agreement + shim DeprecationWarning telemetry)
-│   ├── test_canonical_hash.py            # 44 tests — canonical-form byte-stability + SSoT invariants
+├── tests/                     # run `pytest --collect-only -q` for the live count (per-file counts are NOT hand-maintained — hft-rules §11)
+│   ├── test_canonical_hash.py            # canonical-form byte-stability + SSoT invariants
 │   ├── test_contract_self_consistency.py # Contract invariants (feature counts sum correctly, etc.)
-│   ├── test_experiment_record.py         # 37 tests — Phase 6 6B.1a mirror tests + Phase 7 Round 4/5 (gate_reports + atomic save + classification whitelist + non-mutating shim + atomic-io crash-safety)
-│   ├── test_feature_sets.py              # 20 tests — Phase 6 6B.3 mirror tests
+│   ├── test_experiment_record.py         # Phase 6 6B.1a mirror tests + Phase 7 Round 4/5 (gate_reports + atomic save + classification whitelist + non-mutating shim + atomic-io crash-safety)
+│   ├── test_feature_sets.py              # Phase 6 6B.3 mirror tests
 │   ├── test_label_factory.py             # Multi-horizon label-factory parity vs Rust
-│   ├── test_provenance.py                # 21 tests — Phase 6 6B.4 mirror tests
-│   ├── test_signal_manifest.py           # 15 tests — Phase 6 6B.5 mirror tests
-│   └── test_validation_gates.py          # Export-contract validator tests
+│   ├── test_provenance.py                # Phase 6 6B.4 mirror tests
+│   ├── test_signal_manifest.py           # Phase 6 6B.5 mirror tests
+│   ├── test_validation_gates.py          # Export-contract validator tests
+│   └── …                                 # PARTIAL listing — one test_*.py per contract surface; run `ls tests/` for the full set
 ├── pyproject.toml             # Declares numpy>=1.26 runtime dep (required by label_factory.py + signal_manifest.py)
 └── README.md
 ```
@@ -85,12 +86,12 @@ The three members differ only in payload: `FeatureImportanceArtifact` = per-feat
 | `ExperimentalFeatureIndex` | `_generated` | Enum for experimental indices 98-147 |
 | `SignalIndex` | `_generated` | Enum for trading-signal indices 84-91 |
 | `OffExchangeFeatureIndex` | `_generated` | Off-exchange feature indices 0-33 (basic-quote-processor) |
-| `SCHEMA_VERSION` | `_generated` | Current schema (2.2); emitted at feature index 97 |
+| `SCHEMA_VERSION` | `_generated` | Current schema (`"3.0"`, a JSON-metadata STRING — Phase G G.6.A MAJOR bump 2.2 → 3.0). NO LONGER emitted at feature index 97: idx 97 is RESERVED 0.0 forever post-G.1; the reservation is spot-checked by `validation.py::validate_idx_97_reserved` |
 | `FEATURE_COUNT` / `STANDARD_FEATURE_COUNT` / ... | `_generated` | Feature-count formulas per configuration |
 | `LabelContract` / `RegressionLabelContract` | `labels` | Label-encoding contracts for 4 strategies (TLOB, TripleBarrier, Opportunity, Regression) |
 | `TLOB_CONTRACT` / `TB_CONTRACT` / `OPPORTUNITY_CONTRACT` / `REGRESSION_CONTRACT` | `labels` | Pre-built instances |
 | `ForwardPriceContract` | `label_factory` | T9 forward-prices schema — smoothing_window_offset + horizons invariant |
-| `LabelFactory` | `label_factory` | Python SSoT for label computation (smoothed_return, point_return, peak_return, mean_return, multi_horizon). Rust parity locked by golden-value tests (max diff 7.56e-12 observed). |
+| `LabelFactory` | `label_factory` | Python SSoT for label computation (smoothed_return, point_return, peak_return, mean_return, forward_realized_variance, multi_horizon, classify). `forward_realized_variance` (v2.9.0) is the Python-only second-moment label (bps²; no Rust generator yet — equality-locked to `hft_metrics.realized_measures.realized_variance`, not a Rust-parity fixture). Rust parity for the return-type family locked by golden-value tests (max diff 7.56e-12 observed); Rust-only `dominant_return` parity-maps to Python `peak_return`. |
 | `canonical_json_blob` / `sha256_hex` / `sanitize_for_hash` | `canonical_hash` | Canonical JSON + SHA-256 SSoT (eliminated 5-site duplication in Phase 4 Batch 4c) |
 | `Provenance` / `GitInfo` | `provenance` | Experiment lineage (Phase 6 6B.4). `Provenance.producer_commits: Dict[str, str]` (Foundation Integrity P1a, 2026-05-30) — record-level OBSERVATION of producer-code git lineage (`extractor_git_sha` / `reconstructor_git_sha` / `hft_statistics_git_sha` + `reconstructor_source` + `completeness`); populated fail-open at extraction time; EXCLUDED from the dedup fingerprint; default `{}` (back-compat). |
 | `build_provenance` / `capture_git_info` / `hash_file` / `hash_directory_manifest` | `provenance` | Lazy-I/O capture functions |
@@ -161,7 +162,7 @@ In addition to the contracts listed above, `hft_contracts.__init__.py` exposes t
 - **Canonical hashing**: `canonical_json_blob`, `sanitize_for_hash`, `sha256_hex`.
 - **Phase 6 co-moves**: `Provenance`, `GitInfo`, `build_provenance`, `capture_git_info`, `hash_file`, `hash_directory_manifest`, `hash_config_dict`, `NOT_GIT_TRACKED_SENTINEL`, `PROVENANCE_SCHEMA_VERSION`, `SignalManifest`, `ExperimentRecord`, `RecordType`, `FeatureSet`, `FeatureSetRef`, `FeatureSetAppliesTo`, `FeatureSetProducedBy`, `FeatureSetValidationError`, `FeatureSetIntegrityError`, `FEATURE_SET_SCHEMA_VERSION`, `compute_feature_set_hash`, `validate_feature_set_dict`.
 - **Phase 7 Stage 7.4 Round 5**: `GATE_STATUS_VALUES`, `GateReportDict`.
-- **REV 2 public-API hygiene (2026-04-20)**: `atomic_write_json`, `AtomicWriteError` (renamed home: `hft_contracts.atomic_io`; legacy `hft_contracts._atomic_io` is a DeprecationWarning shim through 2026-10-31); `CONTENT_HASH_RE` (renamed from `_CONTENT_HASH_RE`; legacy name still resolves via module-level `__getattr__` with DeprecationWarning, removal 2026-10-31); `__version__ = "2.2.0"`.
+- **REV 2 public-API hygiene (2026-04-20)**: `atomic_write_json`, `AtomicWriteError` (renamed home: `hft_contracts.atomic_io`; legacy `hft_contracts._atomic_io` is a DeprecationWarning shim through 2026-10-31); `CONTENT_HASH_RE` (renamed from `_CONTENT_HASH_RE`; legacy name still resolves via module-level `__getattr__` with DeprecationWarning, removal 2026-10-31); `__version__` (introduced at "2.2.0"; tracks the package release — see the header for the current value; `pyproject.toml` agreement locked by `TestPackageVersion`).
 
 ## Recent Phase History
 

@@ -1,7 +1,8 @@
 # Phase 0 Benchmark Fixtures
 
-**Purpose**: regression baseline for the Architectural Hardening Cycle (plan v2.0 at
-`/Users/knight/.claude/plans/fuzzy-discovering-flask.md`). Every Phase I/II/III/IV refactor
+**Purpose**: regression baseline for the Architectural Hardening Cycle (plan v2.0 was a
+session-local planning doc, no longer on disk — the durable record is this fixture set +
+`golden_values.json` + the affected modules' CHANGELOGs). Every Phase I/II/III/IV refactor
 regresses forward-pass outputs, signal-boundary fingerprints, and metadata hashes against
 these committed golden values. Unintended numerical drift fails CI.
 
