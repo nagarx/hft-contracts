@@ -72,27 +72,35 @@ for the Producer→Consumer matrix.
 
 ## Module map
 
-All paths are relative to `src/hft_contracts/`. LOCs reflect 2026-04-20 state.
+All paths are relative to `src/hft_contracts/`. This is an entry-point index — `CODEBASE.md` is the authoritative deep map. Per-module line counts are intentionally omitted (they drift every commit); run `wc -l src/hft_contracts/**/*.py` for a live count.
 
-| Module | LOC | Purpose |
-|---|---:|---|
-| `__init__.py` | 393 | Package-level re-exports; `__version__`; ergonomic `from hft_contracts import X` surface |
-| `_generated.py` | 614 | **Auto-generated** from `contracts/pipeline_contract.toml`; never hand-edit. Enums (`FeatureIndex`, `ExperimentalFeatureIndex`, `SignalIndex`, `OffExchangeFeatureIndex`), counts, slices, name dictionaries, schema_version. |
-| `canonical_hash.py` | 158 | SHA-256 SSoT — `canonical_json_blob`, `sanitize_for_hash`, `sha256_hex`. Five-site duplication eliminator from Phase 4 Batch 4c hardening. |
-| `validation.py` | 441 | `ContractError` (the ONE class, post REV 2 consolidation) + boundary validators: `validate_export_contract`, `validate_schema_version`, `validate_metadata_completeness`, etc. |
-| `labels.py` | 237 | `LabelContract`, `LabelingStrategy`, TLOB / TripleBarrier / Opportunity / Regression contracts, label encoding tables. |
-| `label_factory.py` | 452 | `LabelFactory` — Python reference for `smoothed_return / point_return / peak_return / mean_return / dominant_return / multi_horizon / classify`. `ForwardPriceContract` dataclass. Bit-for-bit parity with Rust `hft-labeling/src/multi_horizon.rs` + `magnitude.rs` (max diff 7.56e-12). |
-| `provenance.py` | 358 | `Provenance`, `GitInfo`, `build_provenance`, `capture_git_info`, `hash_file`, `hash_directory_manifest`, `hash_config_dict`. Moved from `hft-ops/provenance/lineage.py` in Phase 6 6B.4. |
-| `signal_manifest.py` | 383 | `SignalManifest` + `CONTENT_HASH_RE` (public post REV 2). `ContractError` now re-exported from `validation.py` — single class identity. Moved from `lob-backtester/data/signal_manifest.py` in Phase 6 6B.5. |
-| `experiment_record.py` | 391 | `ExperimentRecord` (20+ fields), `RecordType` enum, `index_entry()` projection. Atomic `.save()` via `atomic_io.atomic_write_json`. Moved from `hft-ops/ledger/experiment_record.py` in Phase 6 6B.1a. |
-| `atomic_io.py` | 166 | `atomic_write_json` + `AtomicWriteError`. POSIX atomic-write discipline (tmp + fsync + `os.replace`). Renamed from `_atomic_io` in REV 2 (see CHANGELOG). |
-| `_atomic_io.py` | 52 | **Deprecation shim** for pre-REV-2 importers. Emits `DeprecationWarning` on access. Removed 2026-10-31. |
-| `gate_report.py` | 82 | `GateReportDict` TypedDict + `GATE_STATUS_VALUES`. Documents the ``StageResult.captured_metrics["gate_report"]`` convention. Phase 7 Stage 7.4 Round 6. |
-| `feature_sets/__init__.py` | 59 | Package-level re-exports for `FeatureSet`, `FeatureSetRef`, `FeatureSetAppliesTo`, `FeatureSetProducedBy`, etc. |
-| `feature_sets/schema.py` | 490 | `FeatureSet` frozen dataclass (15 fields); `FeatureSetRef` / `FeatureSetAppliesTo` / `FeatureSetProducedBy`; `FeatureSetValidationError` / `FeatureSetIntegrityError`. Moved from `hft-ops/feature_sets/schema.py` in Phase 6 6B.3. |
-| `feature_sets/hashing.py` | 137 | `compute_feature_set_hash` (PRODUCT-only SHA-256 over `{sorted(set(indices)), source_feature_count, contract_version}`). |
+| Module | Purpose |
+|---|---|
+| `__init__.py` | Package-level re-exports; `__version__`; ergonomic `from hft_contracts import X` surface |
+| `_generated.py` | **Auto-generated** from `contracts/pipeline_contract.toml`; never hand-edit. Enums (`FeatureIndex`, `ExperimentalFeatureIndex`, `SignalIndex`, `OffExchangeFeatureIndex`), counts, slices, name dictionaries, schema_version. |
+| `canonical_hash.py` | SHA-256 SSoT — `canonical_json_blob`, `sanitize_for_hash`, `sha256_hex`. Five-site duplication eliminator from Phase 4 Batch 4c hardening. |
+| `validation.py` | `ContractError` (the ONE class, post REV 2 consolidation) + boundary validators: `validate_export_contract`, `validate_schema_version`, `validate_metadata_completeness`, `validate_export_dir` (directory-level integrity SSoT), etc. |
+| `labels.py` | `LabelContract`, `LabelingStrategy`, TLOB / TripleBarrier / Opportunity / Regression contracts, label encoding tables. |
+| `label_factory.py` | `LabelFactory` — Python reference for `smoothed_return / point_return / peak_return / mean_return / dominant_return / multi_horizon / classify`. `ForwardPriceContract` dataclass. Bit-for-bit parity with Rust `hft-labeling` (locked by golden-value tests). |
+| `provenance.py` | `Provenance`, `GitInfo`, `build_provenance`, `capture_git_info`, `hash_file`, `hash_directory_manifest`, `hash_config_dict`. Moved from `hft-ops/provenance/lineage.py` in Phase 6 6B.4. |
+| `signal_manifest.py` | `SignalManifest` + `CONTENT_HASH_RE` (public post REV 2). `ContractError` now re-exported from `validation.py` — single class identity. Moved from `lob-backtester/data/signal_manifest.py` in Phase 6 6B.5. |
+| `experiment_record.py` | `ExperimentRecord`, `RecordType` enum, `index_entry()` projection. Atomic `.save()` via `atomic_io.atomic_write_json`. Moved from `hft-ops/ledger/experiment_record.py` in Phase 6 6B.1a. |
+| `experiment_recorder.py` | Phase 8D ExperimentRecord-**composition** SSoT — `record_from_artifacts` + `harvest_trust_columns{,_from_signal_metadata}` + `HarvestedTrustColumns`. The ONE record-assembly site shared by the hft-ops orchestrator AND the trainer direct-trainer path. |
+| `compatibility.py` | `CompatibilityContract` (shape-determining keys) + `fingerprint()` via `canonical_hash` SSoT + `diff()` + `compute_label_strategy_hash`. Phase II signal-boundary version-skew detection. `COMPATIBILITY_CONTRACT_SCHEMA_VERSION`. |
+| `atomic_io.py` | Crash-safe write **family** SSoT — `atomic_write_json` / `atomic_write_binary` / `atomic_write_torch` (torch lazy-imported) / `atomic_write_npy` / `atomic_write_pickle` / `atomic_copy` + `AtomicWriteError`. tmp + fsync + `os.replace` + BaseException-safe cleanup. Renamed from `_atomic_io` in REV 2. |
+| `_atomic_io.py` | **Deprecation shim** for pre-REV-2 importers. Emits `DeprecationWarning` on access. Removed 2026-10-31. |
+| `gate_report.py` | `GateReportDict` TypedDict + `GATE_STATUS_VALUES`. Documents the `StageResult.captured_metrics["gate_report"]` convention. Phase 7 Stage 7.4 Round 6. |
+| `timestamp_utils.py` | `parse_iso8601_utc` / `is_after_cutoff` — ISO-8601 UTC-aware parse + cutoff-comparison SSoT. Replaces fragile lexicographic ISO string compares (silently wrong on non-UTC offsets). |
+| `feature_importance_artifact.py` | Post-stage artifact contract — `FeatureImportanceArtifact` (per-feature permutation importance). See `CODEBASE.md` "Post-stage artifact contracts". |
+| `test_metrics_ci_artifact.py` | Post-stage artifact contract — `TestMetricsCIArtifact` (bootstrap-CI test-split metrics). ⚠️ a `src/` module, NOT a pytest test file. |
+| `pairwise_compare_artifact.py` | Post-stage artifact contract — `PairwiseCompareArtifact` (K-way paired-bootstrap + BH-FDR comparison). |
+| `_validators.py` | **Internal** (underscore — do not import across modules) shared field-validator primitives consumed by the artifact/dataclass `__post_init__` methods. |
+| `_testing.py` | **Internal** test-support — monorepo-root discovery + phase0 fixture-dir helper for sibling-repo integration tests. |
+| `feature_sets/__init__.py` | Package-level re-exports for `FeatureSet`, `FeatureSetRef`, `FeatureSetAppliesTo`, `FeatureSetProducedBy`, etc. |
+| `feature_sets/schema.py` | `FeatureSet` frozen dataclass; `FeatureSetRef` / `FeatureSetAppliesTo` / `FeatureSetProducedBy`; `FeatureSetValidationError` / `FeatureSetIntegrityError`. Moved from `hft-ops/feature_sets/schema.py` in Phase 6 6B.3. |
+| `feature_sets/hashing.py` | `compute_feature_set_hash` (PRODUCT-only SHA-256 over `{sorted(set(indices)), source_feature_count, contract_version}`). |
 
-**Totals**: 15 modules, **4,413 LOC src** (including 614 auto-gen + 52 shim; 3,747 handwritten). 8 test files, **2,990 LOC tests**.
+The three post-stage artifact modules (`feature_importance_artifact` / `test_metrics_ci_artifact` / `pairwise_compare_artifact`) are one subsystem sharing a uniform frozen-dataclass + SSoT-hash + atomic-save + ledger-routing pattern — see `CODEBASE.md` §"Post-stage artifact contracts". The `feature_sets/` map above lists the 2-of-5 primitives co-moved here (schema + hashing); the writer/registry/producer stay in `hft-ops`.
 
 ---
 

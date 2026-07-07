@@ -30,14 +30,21 @@ hft-contracts/
 │   ├── provenance.py          # Provenance (+ producer_commits: Dict[str,str] record-level build-lineage OBSERVATION — Foundation Integrity P1a, 2026-05-30; excluded from the dedup fingerprint) + GitInfo + build_provenance (Phase 6 6B.4, co-moved from hft-ops)
 │   ├── signal_manifest.py     # SignalManifest + CONTENT_HASH_RE (REV 2 public) + re-exported ContractError from validation (REV 2 F1 consolidation — was two independent classes). Module-level `__getattr__` gates `_CONTENT_HASH_RE` legacy access with one-time DeprecationWarning (removal 2026-10-31). (Phase 6 6B.5 co-move + REV 2 public-API hygiene)
 │   ├── experiment_record.py   # ExperimentRecord + RecordType (Phase 6 6B.1a, co-moved from hft-ops — NARROW MOVE; Phase 7 6B.1b will retire `lobtrainer.experiments.ExperimentRegistry`)
+│   ├── experiment_recorder.py # Phase 8D SSoT — composes an ExperimentRecord from on-disk artifacts + signal metadata (harvest_trust_columns{,_from_signal_metadata} + record_from_artifacts + HarvestedTrustColumns). ONE construction site shared by BOTH the hft-ops orchestrator AND the lob-model-trainer direct-trainer path (keeps the two consumers bit-identical). Reuses ExperimentRecord + build_provenance + compute_experiment_provenance_hash + atomic_write_json SSoTs — no new primitive.
 │   ├── feature_sets/          # Phase 6 6B.3 co-move (2-of-5: schema + hashing only; writer/registry/producer stay in hft-ops)
 │   │   ├── __init__.py        # Public-API re-exports
 │   │   ├── schema.py          # FeatureSet + FeatureSetRef + FeatureSetAppliesTo + FeatureSetProducedBy + validate_feature_set_dict
 │   │   └── hashing.py         # compute_feature_set_hash (PRODUCT-only SHA-256) + _sanitize_for_hash re-export
-│   ├── atomic_io.py           # REV 2 public home (renamed from `_atomic_io.py`, 2026-04-20). Canonical atomic_write_json + AtomicWriteError — SSoT unified across ExperimentRecord.save, hft-ops ledger _save_index, and hft-ops feature_sets writer (thin re-export shim). Convention: sort_keys=True + trailing newline + BaseException-safe cleanup.
+│   ├── atomic_io.py           # REV 2 public home (renamed from `_atomic_io.py`, 2026-04-20). Crash-safe write SSoT — a FAMILY, not just JSON: atomic_write_json / atomic_write_binary / atomic_write_torch (torch LAZY-imported so hft-contracts stays a numpy-only leaf) / atomic_write_npy / atomic_write_pickle / atomic_copy, all sharing tmp+fsync+os.replace + BaseException-safe cleanup + AtomicWriteError (see `__all__`). JSON conventions: sort_keys=True + trailing newline. Unifies ExperimentRecord.save, hft-ops ledger _save_index + feature_sets writer, and (#PY-73) ~20 non-atomic torch/npy/pickle write sites across the trainer/models/backtester.
 │   ├── _atomic_io.py          # REV 2 deprecation shim (52 LOC, 2026-04-20). Module-level `__getattr__` forwards `atomic_write_json` / `AtomicWriteError` to `atomic_io.py` canonical module with one-time DeprecationWarning per symbol. Non-public attribute access raises AttributeError. Removal deadline: 2026-10-31.
 │   ├── gate_report.py         # Phase 7 Stage 7.4 Round 5 (2026-04-20): GateReportDict TypedDict + GATE_STATUS_VALUES frozenset — documents the cross-stage convention for StageResult.captured_metrics["gate_report"] dicts. Consumed by cli.py::_record_experiment generic harvest + ExperimentRecord.gate_reports + index_entry projection.
 │   ├── compatibility.py       # Phase II (2026-04-20): CompatibilityContract frozen dataclass (11 shape-determining keys) + fingerprint() via canonical_hash SSoT + diff() + compute_label_strategy_hash() helper. `__post_init__` defensive validators (P-2, 2026-04-20): reject feature_count<=0, window_size<=0, empty strings on required-string fields, non-positive horizons, primary_horizon_idx out-of-range. Horizons list→tuple coerced via `object.__setattr__` for JSON round-trip fingerprint stability. COMPATIBILITY_CONTRACT_SCHEMA_VERSION="1.0.0".
+│   ├── feature_importance_artifact.py # Post-stage artifact contract (Phase 8C-α) — FeatureImportanceArtifact + FeatureImportance + compute_stability. See "## Post-stage artifact contracts" below.
+│   ├── test_metrics_ci_artifact.py     # Post-stage artifact contract (Phase 2 P2.A) — TestMetricsCIArtifact + MetricCIBound (bootstrap-CI test-split metrics). ⚠️ src/ module, NOT a pytest test file despite the `test_` prefix.
+│   ├── pairwise_compare_artifact.py    # Post-stage artifact contract (Phase 2 P2.C) — PairwiseCompareArtifact + PairwiseResultRecord (K-way paired-bootstrap + BH-FDR comparison). See "## Post-stage artifact contracts" below.
+│   ├── timestamp_utils.py     # ISO-8601 UTC-aware parse + cutoff-comparison SSoT (parse_iso8601_utc, is_after_cutoff). Replaces fragile lexicographic ISO string compares (silently wrong on non-UTC offsets crossing a day boundary). Always returns tz-aware UTC; fail-loud ValueError on malformed input.
+│   ├── _validators.py         # INTERNAL (underscore — do NOT import across module boundaries). Shared field-validator primitive library consumed by the artifact/dataclass `__post_init__` methods: finite-float / positive-int / sha256-hex / CI-ordering / feature-set-ref, etc. Fail-loud ValueError; rejects bool-as-number. ZERO intra-package imports.
+│   ├── _testing.py            # INTERNAL test-support: monorepo-root discovery (require_monorepo_root) + phase0 fixture-dir helper (phase0_fixture_dir). Editable-install only; wheel/sdist raise FileNotFoundError. Consumed by sibling-repo integration tests, not production code.
 │   └── py.typed               # PEP 561 marker (REV 2 follow-up, 2026-04-20). Signals to mypy/pyright/pyre that inline annotations are authoritative. Required since pyproject.toml advertises `Typing :: Typed` classifier.
 ├── tests/                     # 300 tests authoring env / 295 + 5 skip fresh-clone (REV 2: +11 regression tests — F1 ContractError identity + F2 _atomic_io shim + F8 CONTENT_HASH_RE public/legacy/warning + __version__ presence/format/pyproject-agreement + shim DeprecationWarning telemetry)
 │   ├── test_canonical_hash.py            # 44 tests — canonical-form byte-stability + SSoT invariants
@@ -51,6 +58,24 @@ hft-contracts/
 ├── pyproject.toml             # Declares numpy>=1.26 runtime dep (required by label_factory.py + signal_manifest.py)
 └── README.md
 ```
+
+## Post-stage artifact contracts
+
+`feature_importance_artifact.py`, `test_metrics_ci_artifact.py`, and `pairwise_compare_artifact.py` are **one coherent subsystem** — the post-stage artifact-contract family — and share a single, stable pattern. Learn it once and reuse it; do NOT hand-roll an ad-hoc artifact.
+
+Every member is:
+
+- a **frozen dataclass** carrying its own `<KIND>_SCHEMA_VERSION` string (on the artifact, not on the data inside);
+- `content_hash()` delegating to the `canonical_hash` SSoT;
+- `save()` / `load()` delegating to the `atomic_io` SSoT (crash-safe write);
+- `to_dict()` / `from_dict()` where `from_dict` is a **version-migration shim** — MINOR bump = additive fields with `None` defaults (legacy artifacts still load); MAJOR bump = rename/remove (requires an explicit migration path);
+- **produced** by the trainer-side libraries (`lobtrainer.training.importance.*` for feature-permutation importance; `lobtrainer.analysis.stat_rigor.{ci,pairwise}` for the CI + pairwise artifacts) and **content-addressed** into the hft-ops ledger (`hft-ops/ledger/<kind>/{yyyy_mm}/<sha256>.json`) via `_POST_STAGE_ARTIFACT_PATTERNS` (in `hft-ops/src/hft_ops/ledger/ledger.py`). The `record.artifacts[].sha256` projection integrates them into the Phase-Y `experiment_provenance_hash` graph.
+
+The three members differ only in payload: `FeatureImportanceArtifact` = per-feature permutation importance; `TestMetricsCIArtifact` = bootstrap-CI test-split metrics (Politis–Romano / Künsch moving-block); `PairwiseCompareArtifact` = K-way paired-bootstrap + BH-FDR comparison.
+
+⚠️ **Naming trap**: `test_metrics_ci_artifact.py` is a `src/` production module, NOT a pytest test file — pytest does not collect it.
+
+**To add a fourth artifact kind**, follow the root `CLAUDE.md` Change-Coordination Checklist row "Add a new post-stage artifact kind (Phase 8C-α Stage C.3 convention)" rather than improvising — it enumerates the schema-in-TOML → producer-contract → ledger-routing → fingerprint-invariant steps.
 
 ## Key Types (Schema Surface)
 
@@ -79,6 +104,11 @@ hft-contracts/
 | `ContractError` (in validation) | `validation` | Exception for contract violations |
 | `atomic_write_json` / `AtomicWriteError` | `atomic_io` (REV 2 public home) | Canonical crash-safe JSON write SSoT (Phase 7 Stage 7.4 Round 5, 2026-04-20, renamed from `_atomic_io` in REV 2). tmp + fsync + os.replace + BaseException cleanup. sort_keys=True + trailing newline defaults for diff-stable output. Used by `ExperimentRecord.save`, `hft_ops.ledger.ledger._save_index`, and `hft_ops.feature_sets.writer.atomic_write_json` (thin re-export). Legacy `_atomic_io` shim retained through 2026-10-31 with DeprecationWarning. |
 | `GateReportDict` / `GATE_STATUS_VALUES` | `gate_report` | Cross-stage gate-report convention (Phase 7 Stage 7.4 Round 5, 2026-04-20). TypedDict + frozenset({"pass","warn","fail","abort"}). Emitted by every stage runner under `captured_metrics["gate_report"]`; consumed by `cli.py::_record_experiment` and projected into `ExperimentRecord.index_entry()["gate_reports"]`. TypedDict (not Protocol) deliberately — upgrade to full Protocol when a 3rd gate ships. |
+| `record_from_artifacts` / `harvest_trust_columns` / `harvest_trust_columns_from_signal_metadata` / `HarvestedTrustColumns` | `experiment_recorder` | Phase 8D ExperimentRecord-composition SSoT — assembles an `ExperimentRecord` from on-disk artifacts + `signal_metadata.json` at the ONE construction site shared by the hft-ops orchestrator AND the trainer direct path (dual-consumer boundary; keeps records bit-identical). Trust-column source is EITHER `signal_metadata_path` (disk) XOR `captured_metrics_for_trust` (in-memory) — mutually exclusive. `require_complete_provenance=True` opts into fail-loud on missing Phase-Y components; default gracefully degrades to `None`. |
+| `FeatureImportanceArtifact` / `FeatureImportance` / `compute_stability` / `FEATURE_IMPORTANCE_SCHEMA_VERSION` | `feature_importance_artifact` | Post-stage artifact (see "## Post-stage artifact contracts") — per-feature permutation-importance payload. `__post_init__` WARNs when `method="permutation"` and `feature_set_ref is None` (exploratory runs still emit). |
+| `TestMetricsCIArtifact` / `MetricCIBound` / `TEST_METRICS_CI_SCHEMA_VERSION` | `test_metrics_ci_artifact` | Post-stage artifact (see "## Post-stage artifact contracts") — bootstrap-CI test-split metrics (Politis–Romano / Künsch moving-block). ⚠️ a `src/` module, NOT a pytest test file. |
+| `PairwiseCompareArtifact` / `PairwiseResultRecord` / `PAIRWISE_COMPARE_SCHEMA_VERSION` | `pairwise_compare_artifact` | Post-stage artifact (see "## Post-stage artifact contracts") — K-way paired-bootstrap + BH-FDR comparison (BH meaningful only at K≥3); per-pair effect sizes + a strict shared `paired_compat_fingerprint`; `from_hft_metrics_result` adapter over `hft_metrics.pairwise`. |
+| `parse_iso8601_utc` / `is_after_cutoff` | `timestamp_utils` | ISO-8601 UTC-aware parse + cutoff-comparison SSoT. Always returns a tz-aware UTC `datetime`; fail-loud `ValueError` on malformed input. Route every timestamp comparison through here — a raw lexicographic ISO string compare is silently wrong for non-UTC offsets crossing a day boundary. |
 
 ## Import Patterns
 
